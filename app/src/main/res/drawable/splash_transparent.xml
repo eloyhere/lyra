@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 系统 Splash 不显示小图标：直接露出深空底色，交给全屏启动页 -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@android:color/transparent" />
+</shape>

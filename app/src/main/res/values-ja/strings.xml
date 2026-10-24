@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Lyra</string>
+
+    <string name="home_headline">任せてください</string>
+    <string name="home_subtitle">一言伝えれば、実際のアプリで私が操作します</string>
+    <string name="home_connected">接続済み</string>
+    <string name="home_disconnected">未接続</string>
+    <string name="home_placeholder">何をしましょうか？</string>
+    <string name="home_placeholder_example">例：マクドナルドを会社まで注文</string>
+    <string name="home_start">開始</string>
+    <string name="home_mic">音声入力</string>
+    <string name="home_quick_food">出前</string>
+    <string name="home_quick_ride">配車</string>
+    <string name="home_quick_coffee">コーヒー</string>
+    <string name="home_quick_parcel">荷物</string>
+    <string name="home_skills">クイック操作</string>
+    <string name="home_permissions">権限の状態</string>
+    <string name="home_recent">最近</string>
+    <string name="home_demo">Agent デモ</string>
+    <string name="home_ready">準備完了</string>
+
+    <string name="voice_hold_to_talk">押して話す</string>
+    <string name="voice_listening">聞き取り中…</string>
+    <string name="voice_transcribing">文字起こし中…</string>
+    <string name="voice_release_hint">離すと文字に変換します</string>
+    <string name="mic_permission_title">マイクの権限が必要です</string>
+    <string name="mic_permission_rationale">音声入力にはマイクが必要です。許可すると、話した内容を文字に変換できます。</string>
+    <string name="mic_permission_denied">マイクの権限がないため音声入力できません</string>
+    <string name="accessibility_prompt_title">アクセシビリティサービスが必要です</string>
+    <string name="accessibility_prompt_text">Lyra は「Lyra 操作サービス」で画面を読み取り、タップします。有効にしてから開始してください。</string>
+    <string name="action_allow">許可</string>
+    <string name="action_cancel">キャンセル</string>
+    <string name="action_open_settings">設定を開く</string>
+
+    <string name="section_voice">音声入力</string>
+    <string name="row_offline_asr">オフライン音声認識</string>
+    <string name="offline_asr_ready">準備完了 · SenseVoice · 約 228 MB</string>
+    <string name="offline_asr_missing">未ダウンロード · 228 MB のモデルを取得</string>
+    <string name="offline_asr_downloading">ダウンロード中 %1$d%%</string>
+    <string name="offline_asr_failed">ダウンロード失敗、タップで再試行</string>
+    <string name="offline_asr_dialog_hint">SenseVoiceSmall モデルは約 228 MB です。ダウンロード後は音声認識が完全に端末内で完結し、音声は外部に送信されず、追加のアカウントも不要です。Wi-Fi でのダウンロードを推奨します。</string>
+    <string name="offline_asr_delete_hint">モデルを削除するとシステムの音声認識に戻ります。</string>
+    <string name="action_download">ダウンロード</string>
+    <string name="action_delete">削除</string>
+    <string name="action_retry">再試行</string>
+
+    <string name="settings_title">設定</string>
+    <string name="section_agent">Agent モデル</string>
+    <string name="section_appearance">外観</string>
+    <string name="section_language">言語</string>
+    <string name="section_permissions">権限と機能</string>
+    <string name="section_about">このアプリについて</string>
+
+    <string name="label_provider">プロバイダー</string>
+    <string name="label_model">モデル</string>
+    <string name="label_api_key">API キー</string>
+    <string name="label_local_url">ローカルサービスの URL</string>
+    <string name="label_theme">テーマ</string>
+    <string name="label_language">言語</string>
+
+    <string name="theme_system">システムに従う</string>
+    <string name="theme_light">ライト</string>
+    <string name="theme_dark">ダーク</string>
+    <string name="theme_dynamic">ダイナミックカラー</string>
+    <string name="theme_dynamic_hint">壁紙のメインカラーから配色を再構築：色相は壁紙どおり、明度と彩度は Lyra が調整（Android 12+）</string>
+
+    <string name="label_color_theme">配色</string>
+    <string name="theme_color_dynamic_active">壁紙に連動 · ダイナミックカラー</string>
+    <string name="theme_color_pick_hint">ダイナミックカラーは壁紙のメインカラーから配色を作り直します。固定テーマは Lyra 独自のパレットを使います。</string>
+    <string name="theme_lyra">星夜</string>
+    <string name="theme_ocean">オーシャン</string>
+    <string name="theme_teal">青磁</string>
+    <string name="theme_forest">フォレスト</string>
+    <string name="theme_amber">アンバー</string>
+    <string name="theme_sunset">サンセット</string>
+    <string name="theme_rose">ローズ</string>
+    <string name="theme_graphite">グラファイト</string>
+
+    <string name="row_accessibility">アクセシビリティサービス</string>
+    <string name="row_automation">自動化サービス</string>
+    <string name="row_refresh_models">モデル一覧を更新</string>
+    <string name="row_test_connection">接続テスト</string>
+    <string name="row_test_screenshot">スクリーンショットのテスト</string>
+    <string name="row_ocr">OCR</string>
+    <string name="row_history">操作履歴（SQLite）</string>
+    <string name="row_system_settings">システムのアクセシビリティ設定</string>
+    <string name="row_translate">翻訳</string>
+    <string name="row_translate_hint">設定済みのモデルでテキストを翻訳</string>
+    <string name="row_ledger">イベント台帳</string>
+    <string name="row_ledger_hint">追記のみ・ハッシュチェーン</string>
+
+    <string name="about_version">0.1.0 · 個人用ビルド、Play 未配信</string>
+    <string name="about_boundary">できることの境界</string>
+    <string name="about_boundary_value">チャットアプリは操作しません。支払い・認証情報は決して実行しません</string>
+
+    <string name="state_no_data">データなし</string>
+    <string name="state_loading">読み込み中…</string>
+    <string name="action_close">閉じる</string>
+    <string name="home_run_demo">デモを実行</string>
+    <string name="home_demo_hint">キーがあればモデルが判断し、なければスクリプトのデモになります。動作はすべてポリシーを通ります。</string>
+    <string name="home_perm_off">アクセシビリティがオフです</string>
+    <string name="home_empty_recent">実行履歴はまだありません</string>
+    <string name="home_empty_recent_hint">最初のタスクを実行すると、ここに表示されます。</string>
+    <string name="home_perm_off_hint">システム設定で「Lyra 操作サービス」を有効にしてください</string>
+    <string name="home_running">実行中…</string>
+    <string name="settings_models_added">プロバイダーから取得：新規 %1$d 件</string>
+    <string name="log_failed">失敗</string>
+    <string name="log_started">開始</string>
+    <string name="log_acted">実行</string>
+    <string name="log_noted">記録</string>
+    <string name="settings_ledger_ok">チェーン正常 · %1$d 件</string>
+    <string name="settings_ledger_broken">チェーン破損：%1$s</string>
+    <string name="log_observed">観察</string>
+    <string name="log_finished">完了</string>
+    <string name="log_needs_user">確認が必要</string>
+    <string name="settings_key_saved">保存済み %1$s · Keystore 暗号化、端末内のみ</string>
+    <string name="settings_history">%1$d 回の実行 · %2$d ステップ · %3$d アプリ</string>
+    <string name="log_decided">判断</string>
+</resources>

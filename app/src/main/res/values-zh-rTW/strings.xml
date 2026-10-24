@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Lyra</string>
+
+    <string name="home_headline">交給我辦</string>
+    <string name="home_subtitle">說一句話，我在真實的 App 裡替你點完</string>
+    <string name="home_connected">已連線</string>
+    <string name="home_disconnected">未連線</string>
+    <string name="home_placeholder">想讓我幫你做什麼？</string>
+    <string name="home_placeholder_example">例如：點一份麥當勞，送到公司</string>
+    <string name="home_start">開始</string>
+    <string name="home_mic">語音輸入</string>
+    <string name="home_quick_food">點外送</string>
+    <string name="home_quick_ride">叫車</string>
+    <string name="home_quick_coffee">買咖啡</string>
+    <string name="home_quick_parcel">查包裹</string>
+    <string name="home_skills">快捷技能</string>
+    <string name="home_permissions">權限狀態</string>
+    <string name="home_recent">最近</string>
+    <string name="home_demo">Agent 示範</string>
+    <string name="home_ready">已就緒</string>
+
+    <string name="voice_hold_to_talk">按住說話</string>
+    <string name="voice_listening">正在聽…</string>
+    <string name="voice_transcribing">辨識中…</string>
+    <string name="voice_release_hint">放開結束，自動轉成文字</string>
+    <string name="mic_permission_title">需要麥克風權限</string>
+    <string name="mic_permission_rationale">語音輸入要用麥克風。允許後才能把你說的話轉成文字。</string>
+    <string name="mic_permission_denied">沒有麥克風權限，無法語音輸入</string>
+    <string name="accessibility_prompt_title">需要無障礙服務</string>
+    <string name="accessibility_prompt_text">Lyra 要透過「Lyra 操作服務」讀屏和點擊。開啟後再點開始，任務才能真正跑起來。</string>
+    <string name="action_allow">允許</string>
+    <string name="action_cancel">取消</string>
+    <string name="action_open_settings">去設定</string>
+
+    <string name="section_voice">語音辨識</string>
+    <string name="row_offline_asr">離線語音辨識</string>
+    <string name="offline_asr_ready">已就緒 · SenseVoice · 約 228 MB</string>
+    <string name="offline_asr_missing">未下載 · 點擊下載 228 MB 模型</string>
+    <string name="offline_asr_downloading">下載中 %1$d%%</string>
+    <string name="offline_asr_failed">下載失敗，點擊重試</string>
+    <string name="offline_asr_dialog_hint">SenseVoiceSmall 模型約 228 MB。下載後辨識完全在裝置上完成，音訊不會離開裝置，也不需要額外帳號。建議在 Wi-Fi 下下載。</string>
+    <string name="offline_asr_delete_hint">刪除模型後會回退到系統語音辨識。</string>
+    <string name="action_download">下載</string>
+    <string name="action_delete">刪除</string>
+    <string name="action_retry">重試</string>
+
+    <string name="settings_title">設定</string>
+    <string name="section_agent">Agent 模型</string>
+    <string name="section_appearance">外觀</string>
+    <string name="section_language">語言</string>
+    <string name="section_permissions">權限與能力</string>
+    <string name="section_about">關於</string>
+
+    <string name="label_provider">服務商</string>
+    <string name="label_model">模型</string>
+    <string name="label_api_key">API Key</string>
+    <string name="label_local_url">本機服務位址</string>
+    <string name="label_theme">主題</string>
+    <string name="label_language">語言</string>
+
+    <string name="theme_system">跟隨系統</string>
+    <string name="theme_light">淺色</string>
+    <string name="theme_dark">深色</string>
+    <string name="theme_dynamic">動態取色</string>
+    <string name="theme_dynamic_hint">從桌布主色推導整套配色：色相跟隨桌布，明度與彩度由 Lyra 校準（Android 12+）</string>
+
+    <string name="label_color_theme">配色方案</string>
+    <string name="theme_color_dynamic_active">跟隨桌布 · 動態取色</string>
+    <string name="theme_color_pick_hint">動態取色會從桌布主色重建整套配色；固定主題使用 Lyra 自己的色板。</string>
+    <string name="theme_lyra">星夜</string>
+    <string name="theme_ocean">海鹽</string>
+    <string name="theme_teal">青瓷</string>
+    <string name="theme_forest">森林</string>
+    <string name="theme_amber">琥珀</string>
+    <string name="theme_sunset">落日</string>
+    <string name="theme_rose">玫瑰</string>
+    <string name="theme_graphite">石墨</string>
+
+    <string name="row_accessibility">無障礙服務</string>
+    <string name="row_automation">自動化服務</string>
+    <string name="row_refresh_models">重新整理模型清單</string>
+    <string name="row_test_connection">測試連線</string>
+    <string name="row_test_screenshot">測試截圖</string>
+    <string name="row_ocr">OCR 辨識</string>
+    <string name="row_history">操作紀錄（SQLite）</string>
+    <string name="row_system_settings">系統無障礙設定</string>
+    <string name="row_translate">翻譯</string>
+    <string name="row_translate_hint">用已設定的模型翻譯文字</string>
+    <string name="row_ledger">事件帳本</string>
+    <string name="row_ledger_hint">只追加 · 雜湊鏈</string>
+
+    <string name="about_version">0.1.0 · 自用建置，不上架 Play</string>
+    <string name="about_boundary">能力邊界</string>
+    <string name="about_boundary_value">聊天類 App 不接管；資金/憑證類永不執行</string>
+
+    <string name="state_no_data">無資料</string>
+    <string name="state_loading">載入中…</string>
+    <string name="action_close">關閉</string>
+    <string name="home_run_demo">執行示範</string>
+    <string name="home_demo_hint">有 Key 時由模型決定；沒有 Key 時改用腳本示範。動作全部經過策略閘門與自動化服務。</string>
+    <string name="home_perm_off">尚未開啟無障礙服務</string>
+    <string name="home_empty_recent">還沒有執行紀錄</string>
+    <string name="home_empty_recent_hint">跑通第一個任務後，這裡會顯示最近做過的事。</string>
+    <string name="home_perm_off_hint">點這裡去系統設定開啟「Lyra 操作服務」</string>
+    <string name="home_running">執行中…</string>
+    <string name="settings_models_added">已從官網取得，新增 %1$d 個模型</string>
+    <string name="log_failed">失敗</string>
+    <string name="log_started">開始</string>
+    <string name="log_acted">執行</string>
+    <string name="log_noted">記錄</string>
+    <string name="settings_ledger_ok">鏈完整 · %1$d 筆事件</string>
+    <string name="settings_ledger_broken">鏈損壞：%1$s</string>
+    <string name="log_observed">觀察</string>
+    <string name="log_finished">完成</string>
+    <string name="log_needs_user">需要你</string>
+    <string name="settings_key_saved">已儲存 %1$s · Keystore 加密，僅本機</string>
+    <string name="settings_history">%1$d 次任務 · %2$d 筆步驟 · %3$d 個應用</string>
+    <string name="log_decided">決定</string>
+</resources>

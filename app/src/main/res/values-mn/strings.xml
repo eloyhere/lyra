@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Lyra</string>
+
+    <string name="home_headline">Надад даалга</string>
+    <string name="home_subtitle">Нэг өгүүлбэр хэлээрэй. Би жинхэнэ апп дотор таны өмнөөс дарна.</string>
+    <string name="home_connected">Холбогдсон</string>
+    <string name="home_disconnected">Холбогдоогүй</string>
+    <string name="home_placeholder">Би танд юу хийх вэ?</string>
+    <string name="home_placeholder_example">Жишээ: Макдональдс захиалж оффис руу хүргүүлэх</string>
+    <string name="home_start">Эхлэх</string>
+    <string name="home_mic">Дуут оруулга</string>
+    <string name="home_quick_food">Хоол захиалах</string>
+    <string name="home_quick_ride">Такси</string>
+    <string name="home_quick_coffee">Кофе</string>
+    <string name="home_quick_parcel">Илгээмж</string>
+    <string name="home_skills">Шуурхай үйлдэл</string>
+    <string name="home_permissions">Зөвшөөрлийн төлөв</string>
+    <string name="home_recent">Сүүлийн</string>
+    <string name="home_demo">Agent демо</string>
+    <string name="home_ready">Бэлэн</string>
+
+    <string name="settings_title">Тохиргоо</string>
+    <string name="section_agent">Agent загвар</string>
+    <string name="section_appearance">Гадаад төрх</string>
+    <string name="section_language">Хэл</string>
+    <string name="section_permissions">Зөвшөөрөл ба боломж</string>
+    <string name="section_about">Тухай</string>
+
+    <string name="label_provider">Үйлчилгээ үзүүлэгч</string>
+    <string name="label_model">Загвар</string>
+    <string name="label_api_key">API түлхүүр</string>
+    <string name="label_local_url">Локал үйлчилгээний хаяг</string>
+    <string name="label_theme">Сэдэв</string>
+    <string name="label_language">Хэл</string>
+
+    <string name="theme_system">Системийн дагуу</string>
+    <string name="theme_light">Гэрэлт</string>
+    <string name="theme_dark">Харанхуй</string>
+    <string name="theme_dynamic">Динамик өнгө</string>
+    <string name="theme_dynamic_hint">Дэлгэцийн зурагт тохируулан өнгө үүсгэх (Android 12+)</string>
+
+    <string name="row_accessibility">Хүртээмжийн үйлчилгээ</string>
+    <string name="row_automation">Автоматжуулалтын үйлчилгээ</string>
+    <string name="row_refresh_models">Загварын жагсаалт шинэчлэх</string>
+    <string name="row_test_connection">Холболт шалгах</string>
+    <string name="row_test_screenshot">Дэлгэцийн зураг шалгах</string>
+    <string name="row_ocr">OCR</string>
+    <string name="row_history">Үйлдлийн түүх (SQLite)</string>
+    <string name="row_system_settings">Системийн хүртээмжийн тохиргоо</string>
+    <string name="row_translate">Орчуулга</string>
+    <string name="row_translate_hint">Тохируулсан загвараар текст орчуулах</string>
+    <string name="row_ledger">Үйл явдлын бүртгэл</string>
+    <string name="row_ledger_hint">Зөвхөн нэмэх · хэш хэлхээ</string>
+
+    <string name="about_version">0.1.0 · Өөрөө бүтээсэн, Play-д байхгүй</string>
+    <string name="about_boundary">Боломжийн хязгаар</string>
+    <string name="about_boundary_value">Чат аппыг удирдахгүй; төлбөр, нэвтрэх мэдээллийг хэзээ ч гүйцэтгэхгүй</string>
+
+    <string name="state_no_data">Өгөгдөлгүй</string>
+    <string name="state_loading">Ачаалж байна…</string>
+    <string name="action_close">Хаах</string>
+</resources>

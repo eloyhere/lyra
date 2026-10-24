@@ -1,0 +1,120 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Lyra</string>
+
+    <string name="home_headline">맡겨 주세요</string>
+    <string name="home_subtitle">한마디면 실제 앱에서 제가 직접 눌러 드립니다</string>
+    <string name="home_connected">연결됨</string>
+    <string name="home_disconnected">연결 안 됨</string>
+    <string name="home_placeholder">무엇을 도와드릴까요?</string>
+    <string name="home_placeholder_example">예: 맥도날드 주문을 회사로 배달</string>
+    <string name="home_start">시작</string>
+    <string name="home_mic">음성 입력</string>
+    <string name="home_quick_food">음식 주문</string>
+    <string name="home_quick_ride">택시</string>
+    <string name="home_quick_coffee">커피</string>
+    <string name="home_quick_parcel">택배</string>
+    <string name="home_skills">빠른 기능</string>
+    <string name="home_permissions">권한 상태</string>
+    <string name="home_recent">최근</string>
+    <string name="home_demo">Agent 데모</string>
+    <string name="home_ready">준비됨</string>
+
+    <string name="voice_hold_to_talk">길게 눌러 말하기</string>
+    <string name="voice_listening">듣는 중…</string>
+    <string name="voice_transcribing">인식 중…</string>
+    <string name="voice_release_hint">손을 떼면 글로 변환합니다</string>
+    <string name="mic_permission_title">마이크 권한이 필요합니다</string>
+    <string name="mic_permission_rationale">음성 입력에는 마이크가 필요합니다. 허용하면 말한 내용을 텍스트로 바꿀 수 있습니다.</string>
+    <string name="mic_permission_denied">마이크 권한이 없어 음성 입력을 사용할 수 없습니다</string>
+    <string name="accessibility_prompt_title">접근성 서비스가 필요합니다</string>
+    <string name="accessibility_prompt_text">Lyra는 \'Lyra 조작 서비스\'로 화면을 읽고 탭합니다. 켠 뒤 다시 시작하세요.</string>
+    <string name="action_allow">허용</string>
+    <string name="action_cancel">취소</string>
+    <string name="action_open_settings">설정 열기</string>
+
+    <string name="section_voice">음성 입력</string>
+    <string name="row_offline_asr">오프라인 음성 인식</string>
+    <string name="offline_asr_ready">준비됨 · SenseVoice · 약 228 MB</string>
+    <string name="offline_asr_missing">미다운로드 · 228 MB 모델 받기</string>
+    <string name="offline_asr_downloading">다운로드 중 %1$d%%</string>
+    <string name="offline_asr_failed">다운로드 실패, 탭하여 재시도</string>
+    <string name="offline_asr_dialog_hint">SenseVoiceSmall 모델은 약 228 MB입니다. 다운로드 후에는 음성 인식이 전부 기기에서 처리되며, 음성이 외부로 전송되지 않고 추가 계정도 필요 없습니다. Wi-Fi 다운로드를 권장합니다.</string>
+    <string name="offline_asr_delete_hint">모델을 삭제하면 시스템 음성 인식으로 돌아갑니다.</string>
+    <string name="action_download">다운로드</string>
+    <string name="action_delete">삭제</string>
+    <string name="action_retry">재시도</string>
+
+    <string name="settings_title">설정</string>
+    <string name="section_agent">Agent 모델</string>
+    <string name="section_appearance">화면</string>
+    <string name="section_language">언어</string>
+    <string name="section_permissions">권한 및 기능</string>
+    <string name="section_about">정보</string>
+
+    <string name="label_provider">제공자</string>
+    <string name="label_model">모델</string>
+    <string name="label_api_key">API 키</string>
+    <string name="label_local_url">로컬 서비스 주소</string>
+    <string name="label_theme">테마</string>
+    <string name="label_language">언어</string>
+
+    <string name="theme_system">시스템 설정</string>
+    <string name="theme_light">라이트</string>
+    <string name="theme_dark">다크</string>
+    <string name="theme_dynamic">다이내믹 색상</string>
+    <string name="theme_dynamic_hint">배경화면 주 색상에서 색상 체계를 다시 만듭니다: 색상은 배경화면을 따르고, 명도와 채도는 Lyra가 보정합니다 (Android 12+)</string>
+
+    <string name="label_color_theme">색상 테마</string>
+    <string name="theme_color_dynamic_active">배경화면 연동 · 다이내믹 색상</string>
+    <string name="theme_color_pick_hint">다이내믹 색상은 배경화면 주 색상에서 전체 색상을 다시 만듭니다. 고정 테마는 Lyra 자체 팔레트를 사용합니다.</string>
+    <string name="theme_lyra">별밤</string>
+    <string name="theme_ocean">오션</string>
+    <string name="theme_teal">청자</string>
+    <string name="theme_forest">포레스트</string>
+    <string name="theme_amber">앰버</string>
+    <string name="theme_sunset">선셋</string>
+    <string name="theme_rose">로즈</string>
+    <string name="theme_graphite">그래파이트</string>
+
+    <string name="row_accessibility">접근성 서비스</string>
+    <string name="row_automation">자동화 서비스</string>
+    <string name="row_refresh_models">모델 목록 새로고침</string>
+    <string name="row_test_connection">연결 테스트</string>
+    <string name="row_test_screenshot">스크린샷 테스트</string>
+    <string name="row_ocr">OCR</string>
+    <string name="row_history">작업 기록 (SQLite)</string>
+    <string name="row_system_settings">시스템 접근성 설정</string>
+    <string name="row_translate">번역</string>
+    <string name="row_translate_hint">설정된 모델로 텍스트 번역</string>
+    <string name="row_ledger">이벤트 원장</string>
+    <string name="row_ledger_hint">추가 전용 · 해시 체인</string>
+
+    <string name="about_version">0.1.0 · 개인용 빌드, Play 미출시</string>
+    <string name="about_boundary">가능한 범위</string>
+    <string name="about_boundary_value">채팅 앱은 제어하지 않으며, 결제와 인증 정보는 절대 실행하지 않습니다</string>
+
+    <string name="state_no_data">데이터 없음</string>
+    <string name="state_loading">불러오는 중…</string>
+    <string name="action_close">닫기</string>
+    <string name="home_run_demo">데모 실행</string>
+    <string name="home_demo_hint">키가 있으면 모델이 결정하고, 없으면 스크립트 데모로 대체합니다. 모든 동작은 정책을 거칩니다.</string>
+    <string name="home_perm_off">접근성 서비스가 꺼져 있습니다</string>
+    <string name="home_empty_recent">실행 기록이 없습니다</string>
+    <string name="home_empty_recent_hint">첫 작업을 실행하면 여기에 표시됩니다.</string>
+    <string name="home_perm_off_hint">시스템 설정에서 "Lyra操作 서비스"를 켜세요</string>
+    <string name="home_running">실행 중…</string>
+    <string name="settings_models_added">제공자에서 가져옴: 새 모델 %1$d개</string>
+    <string name="log_failed">실패</string>
+    <string name="log_started">시작</string>
+    <string name="log_acted">실행</string>
+    <string name="log_noted">기록</string>
+    <string name="settings_ledger_ok">체인 정상 · 이벤트 %1$d개</string>
+    <string name="settings_ledger_broken">체인 손상: %1$s</string>
+    <string name="log_observed">관찰</string>
+    <string name="log_finished">완료</string>
+    <string name="log_needs_user">확인 필요</string>
+    <string name="settings_key_saved">저장됨 %1$s · Keystore 암호화, 기기 내에만</string>
+    <string name="settings_history">%1$d회 실행 · %2$d단계 · 앱 %3$d개</string>
+    <string name="log_decided">결정</string>
+</resources>

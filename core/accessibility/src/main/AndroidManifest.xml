@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- 文件列表：仅 Android 12 及以下；13+ 需 READ_MEDIA_*，尚未接入 -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+    <application>
+
+        <service
+            android:name="com.eloykim.lyra.accessibility.LyraAccessibilityService"
+            android:exported="true"
+            android:label="@string/lyra_accessibility_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/lyra_accessibility_service" />
+        </service>
+
+        <!-- 阶段一：仅应用内绑定。要跨进程/跨应用开放时，改成 exported=true 并加 signature 级权限。 -->
+        <service
+            android:name="com.eloykim.lyra.automation.AutomationService"
+            android:exported="false" />
+
+    </application>
+
+</manifest>

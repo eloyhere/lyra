@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Lyra</string>
+
+    <string name="home_headline">ང་ལ་བཞག</string>
+    <string name="home_subtitle">ཚིག་གཅིག་བཤད་ན། ངས་དངོས་གནས་ཀྱི་ App ནང་ཁྱེད་ཀྱི་ཚབ་ཏུ་མནན་ཐུབ།</string>
+    <string name="home_connected">མཐུད་ཟིན</string>
+    <string name="home_disconnected">མ་མཐུད</string>
+    <string name="home_placeholder">ངས་ཁྱེད་ལ་ཅི་བྱེད་དགོས?</string>
+    <string name="home_placeholder_example">དཔེར་ན། མགྲོན་ཁང་ལ་མགྲོན་ཆས་གཏོང་དགོས</string>
+    <string name="home_start">འགོ་འཛུགས</string>
+    <string name="home_mic">སྐད་ཀྱིས་འཇུག</string>
+    <string name="home_quick_food">ཟས་གཏོང</string>
+    <string name="home_quick_ride">རླངས་འཁོར</string>
+    <string name="home_quick_coffee">ཀོ་ཕི</string>
+    <string name="home_quick_parcel">ཐོན་ཟོག</string>
+    <string name="home_skills">མགྱོགས་རོགས</string>
+    <string name="home_permissions">དབང་ཆའི་གནས་ཚུལ</string>
+    <string name="home_recent">ཉེ་བའི</string>
+    <string name="home_demo">Agent དཔེ་སྟོན</string>
+    <string name="home_ready">གྲུབ་ཟིན</string>
+
+    <string name="settings_title">སྒྲིག་བཀོད</string>
+    <string name="section_agent">Agent དཔེ་དབྱིབས</string>
+    <string name="section_appearance">ཕྱི་ཚུལ</string>
+    <string name="section_language">སྐད་ཡིག</string>
+    <string name="section_permissions">དབང་ཆ་དང་ནུས་པ</string>
+    <string name="section_about">སྐོར</string>
+
+    <string name="label_provider">ཞབས་ཞུ་སྤྲོད་མཁན</string>
+    <string name="label_model">དཔེ་དབྱིབས</string>
+    <string name="label_api_key">API ལྡེ་ཆན</string>
+    <string name="label_local_url">ས་གནས་ཞབས་ཞུའི་ཁ་བྱང</string>
+    <string name="label_theme">བརྗོད་གཞི</string>
+    <string name="label_language">སྐད་ཡིག</string>
+
+    <string name="theme_system">རིམ་པ་ལྟར</string>
+    <string name="theme_light">སྐྱ་བོ</string>
+    <string name="theme_dark">ནག་པོ</string>
+    <string name="theme_dynamic">འགུལ་བའི་ཚོས་གཞི</string>
+    <string name="theme_dynamic_hint">རིམ་པའི་རྒྱབ་ཤོག་ལྟར་ཚོས་གཞི་བཟོ་བ། (Android 12+)</string>
+
+    <string name="row_accessibility">འཛུལ་སྤྱོད་ཞབས་ཞུ</string>
+    <string name="row_automation">རང་འགུལ་ཞབས་ཞུ</string>
+    <string name="row_refresh_models">དཔེ་དབྱིབས་ཐོ་ཡིག་གསར་བཅོས</string>
+    <string name="row_test_connection">མཐུད་སྦྲེལ་བརྟག་དཔྱད</string>
+    <string name="row_test_screenshot">པར་ལེན་བརྟག་དཔྱད</string>
+    <string name="row_ocr">OCR</string>
+    <string name="row_history">བྱ་བའི་ལོ་རྒྱུས (SQLite)</string>
+    <string name="row_system_settings">རིམ་པའི་འཛུལ་སྤྱོད་སྒྲིག་བཀོད</string>
+    <string name="row_translate">སྐད་བསྒྱུར</string>
+    <string name="row_translate_hint">སྒྲིག་བཀོད་ཟིན་པའི་དཔེ་དབྱིབས་ཀྱིས་ཡི་གེ་བསྒྱུར་བ།</string>
+    <string name="row_ledger">བྱ་བའི་ཐོ</string>
+    <string name="row_ledger_hint">...</string>
+
+    <string name="about_version">0.1.0 · རང་བཟོ། Play ལ་མི་ཕེབས</string>
+    <string name="about_boundary">ནུས་པའི་མཚམས</string>
+    <string name="about_boundary_value">ཁ་བརྗོད་ App མི་འཛིན། དངུལ་དང་ལག་ཁྱེར་གྱི་བྱ་བ་ནམ་ཡང་མི་བྱེད།</string>
+
+    <string name="state_no_data">དུ་ཡིག་མེད</string>
+    <string name="state_loading">འཇུག་བཞིན…</string>
+    <string name="action_close">སྒོ་རྒྱག</string>
+</resources>
