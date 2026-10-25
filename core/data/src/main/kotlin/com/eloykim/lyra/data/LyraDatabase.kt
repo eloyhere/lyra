@@ -32,6 +32,10 @@ internal class LyraDatabase(context: Context) : SQLiteOpenHelper(context, NAME, 
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        // v34：群聊消息保存思考过程。
+        if (oldVersion < 34) {
+            db.execSQL("ALTER TABLE group_messages ADD COLUMN reasoning TEXT")
+        }
         // v33：入职申请——部长提议，财务/资源审批，人力部创建。
         if (oldVersion < 33) {
             db.execSQL(
@@ -808,6 +812,6 @@ internal class LyraDatabase(context: Context) : SQLiteOpenHelper(context, NAME, 
     }
     companion object {
         const val NAME = "lyra_history.db"
-        const val VERSION = 33
+        const val VERSION = 34
     }
 }

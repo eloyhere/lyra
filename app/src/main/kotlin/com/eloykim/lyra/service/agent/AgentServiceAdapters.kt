@@ -32,10 +32,11 @@ class CommandAppCatalog(private val commands: CommandRegistry) : AppCatalogServi
                 args.put("package", query.trim())
             } else {
                 args.put("query", query.trim())
-                args.put("limit", 60)
+                args.put("limit", 2000)
             }
         } else if (command == "application.list") {
-            args.put("limit", 60)
+            // 首页 Agent 需要完整应用目录，不能只拿前 60 个。
+            args.put("limit", 2000)
         }
         return commands.run(command, args).toAgentResult()
     }

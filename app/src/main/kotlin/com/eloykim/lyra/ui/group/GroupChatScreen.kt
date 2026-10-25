@@ -459,7 +459,7 @@ fun GroupChatScreen(onBack: () -> Unit) {
                     val title = agent?.positionKey?.let {
                         com.eloykim.lyra.attention.Positions.byKey(it)?.title
                     } ?: data.roles.firstOrNull { it.id == agent?.roleId }?.name
-                    record.toChatMessage(authorOverride = title)
+                    record.toChatMessage(authorOverride = title, reasoning = record.reasoning)
                 }.let { list ->
                     // 用户消息先上屏，不等模型
                     val withUser = if (pendingUserText.isBlank()) {
@@ -837,10 +837,14 @@ private fun GroupMessageBubble(message: GroupMessageRecord) {
     }
 }
 
-private fun GroupMessageRecord.toChatMessage(authorOverride: String? = null): ChatMessage = ChatMessage(
+private fun GroupMessageRecord.toChatMessage(
+    authorOverride: String? = null,
+    reasoning: String? = null,
+): ChatMessage = ChatMessage(
     id = id,
     role = if (role == "user") ChatRole.User else ChatRole.Assistant,
     content = content,
+    reasoning = reasoning,
     createdAt = createdAt,
     authorName = (authorOverride ?: authorName).takeIf { role != "user" },
     quote = quotedContent?.let { content ->

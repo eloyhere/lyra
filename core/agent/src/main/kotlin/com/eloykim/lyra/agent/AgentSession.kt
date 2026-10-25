@@ -96,7 +96,30 @@ class AgentSession(
                     return@flow
                 }
             }
-            backend.lastFrame?.let { frame -> runCatching { frames.record(runId, frame) } }
+            backend.lastFrame?.let { frame ->
+                runCatching { frames.record(runId, frame) }
+                emit(
+                    AgentEvent.Frame(
+                        cycle = frame.cycle,
+                        mode = frame.mode,
+                        goal = frame.goal,
+                        slots = frame.slots.size,
+                        ignored = frame.ignored.size,
+                        allocatedTokens = frame.allocatedTokens,
+                        spentTokens = frame.spentTokens,
+                    ),
+                )
+            }
+            budget?.let { scheduler ->
+                val left = scheduler.remaining()
+                emit(
+                    AgentEvent.Budget(
+                        remainingTokens = left.tokens.toLong(),
+                        remainingMs = left.ms,
+                        remainingCalls = left.calls,
+                    ),
+                )
+            }
             events.record(
                 "verb.proposed",
                 """{"seq":$steps,"verb":"${verbName(verb)}"}""",
@@ -585,6 +608,20 @@ class AgentSession(
 
 sealed interface AgentEvent {
     data class Started(val task: String) : AgentEvent
+    data class Frame(
+        val cycle: Int,
+        val mode: String,
+        val goal: String,
+        val slots: Int,
+        val ignored: Int,
+        val allocatedTokens: Int,
+        val spentTokens: Int,
+    ) : AgentEvent
+    data class Budget(
+        val remainingTokens: Long,
+        val remainingMs: Long,
+        val remainingCalls: Int,
+    ) : AgentEvent
     data class Observed(val observation: Observation) : AgentEvent
     data class Decided(val verb: Verb) : AgentEvent
     data class Acted(val verb: Verb, val result: ActionResult) : AgentEvent

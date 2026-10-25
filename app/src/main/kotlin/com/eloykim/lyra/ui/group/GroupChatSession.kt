@@ -159,7 +159,7 @@ class GroupChatSession(private val sessionId: Long) {
 
             val thinking = com.eloykim.lyra.network.ThinkingLevel.entries
                 .firstOrNull { it.wireValue == role.thinkingLevel }
-                ?: com.eloykim.lyra.network.ThinkingLevel.Off
+                ?: com.eloykim.lyra.network.ThinkingLevel.Medium
             val client = LlmClients.create(
                 providerId = role.brandId,
                 baseUrl = baseUrl,
@@ -221,6 +221,7 @@ class GroupChatSession(private val sessionId: Long) {
                 authorName = positionTitleOf(agent, roles),
                 content = reply,
                 mentions = "",
+                reasoning = reasoning.toString().takeIf { it.isNotBlank() },
             )
             onReply(agent.id, reply, reasoning.toString().takeIf { it.isNotBlank() })
             replies += 1

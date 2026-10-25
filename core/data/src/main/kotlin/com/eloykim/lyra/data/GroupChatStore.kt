@@ -59,6 +59,7 @@ data class GroupMessageRecord(
     val authorId: Long?,
     val authorName: String,
     val content: String,
+    val reasoning: String? = null,
     val mentions: String,
     val createdAt: Long,
     val quotedId: Long? = null,
@@ -1180,7 +1181,7 @@ class GroupChatStore internal constructor(private val helper: LyraDatabase) {
             val result = ArrayList<GroupMessageRecord>()
             helper.readableDatabase.rawQuery(
                 "SELECT id, session_id, role, author_id, author_name, content, mentions, created_at, " +
-                    "quoted_id, quoted_author, quoted_content " +
+                    "quoted_id, quoted_author, quoted_content, reasoning " +
                     "FROM group_messages WHERE session_id = ? " +
                     "ORDER BY created_at DESC LIMIT ?",
                 arrayOf(sessionId.toString(), limit.coerceIn(1, 500).toString()),
@@ -1198,6 +1199,7 @@ class GroupChatStore internal constructor(private val helper: LyraDatabase) {
                         quotedId = cursor.getLong(8).takeIf { !cursor.isNull(8) },
                         quotedAuthor = cursor.getString(9),
                         quotedContent = cursor.getString(10),
+                        reasoning = if (cursor.isNull(11)) null else cursor.getString(11),
                     )
                 }
             }
@@ -1214,6 +1216,7 @@ class GroupChatStore internal constructor(private val helper: LyraDatabase) {
         quotedId: Long? = null,
         quotedAuthor: String? = null,
         quotedContent: String? = null,
+        reasoning: String? = null,
     ): Long = withContext(Dispatchers.IO) {
         val db = helper.writableDatabase
         val id = db.insertOrThrow(
@@ -1229,6 +1232,7 @@ class GroupChatStore internal constructor(private val helper: LyraDatabase) {
                 put("quoted_id", quotedId)
                 put("quoted_author", quotedAuthor)
                 put("quoted_content", quotedContent)
+                put("reasoning", reasoning)
                 put("created_at", System.currentTimeMillis())
             },
         )

@@ -152,6 +152,8 @@ fun HomeScreen(
     var query by rememberSaveable { mutableStateOf("") }
     var submitted by rememberSaveable { mutableStateOf<String?>(null) }
     var demoRunning by remember { mutableStateOf(false) }
+    var ampFrame by remember { mutableStateOf<AgentEvent.Frame?>(null) }
+    var ampBudget by remember { mutableStateOf<AgentEvent.Budget?>(null) }
     var demoLog by remember { mutableStateOf<List<String>>(emptyList()) }
     var showAccessibilityPrompt by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
@@ -280,141 +282,189 @@ fun HomeScreen(
         failed = stringResource(R.string.log_failed),
     )
 
-    fun startAgent(task: String) {
+    fun startAgent(task: String, demo: Boolean = false) {
         if (demoRunning) return
+        if (!demo && !AccessibilityState.connected.value) {
+            scope.launch { snackbarHostState.showSnackbar("无障碍服务未连接，不能执行任务") }
+            return
+        }
         demoRunning = true
         demoLog = emptyList()
-        AppGraph.appScope.launch {
-            val settings = SettingsStore.state.value
-            val key = SettingsStore.apiKey()
-            val catalog = runCatching { AppGraph.history.catalog() }.getOrDefault(emptyList())
-            val provider = catalog.firstOrNull { it.provider.id == settings.brandId }?.provider
-            val baseUrl = if (settings.brandId == "local") settings.localBaseUrl else provider?.baseUrl
-            val modelRow = catalog.firstOrNull { it.provider.id == settings.brandId }
+        ampFrame = null
+        ampBudget = null
+        submitted = task
+        scope.launch {
+            try {
+                val settings = SettingsStore.state.value
+                val key = SettingsStore.apiKey()
+                val catalog = runCatching { AppGraph.history.catalog() }.getOrDefault(emptyList())
+                val provider = catalog.firstOrNull { it.provider.id == settings.brandId }?.provider
+                val baseUrl = if (settings.brandId == "local") {
+                    settings.localBaseUrl.ifBlank { null }
+                } else {
+                    provider?.baseUrl?.ifBlank { null }
+                }
+                val modelRow = catalog.firstOrNull { it.provider.id == settings.brandId }
                     ?.models?.firstOrNull { it.id == settings.model }
-                val backend: AgentBackend = if (!key.isNullOrBlank() && provider != null && baseUrl != null) {
-                val client = LlmClients.create(provider.id, baseUrl, key, settings.model)
-                LlmAgentBackend(
-                    client = client,
+                val keyOptional = settings.brandId == "local" || settings.brandId == "openrouter"
+                val canUseLlm = provider != null && baseUrl != null &&
+                    (keyOptional || !key.isNullOrBlank())
+
+                if (!demo && !canUseLlm) {
+                    val reason = "没有可用的模型服务：请检查品牌、Base URL 和 API Key"
+                    demoLog = listOf(reason)
+                    submitted = "启动失败"
+                    LyraNotifications.post(NoticeLevel.OPPORTUNITY, reason, id = 102)
+                    snackbarHostState.showSnackbar(reason)
+                    return@launch
+                }
+
+                val backend: AgentBackend = if (demo) {
+                    ScriptedBackend(demoSteps)
+                } else {
+                    val client = LlmClients.create(
+                        providerId = provider!!.id,
+                        baseUrl = baseUrl!!,
+                        apiKey = key.orEmpty(),
+                        model = settings.model,
+                        thinking = settings.thinkingLevel,
+                    )
+                    LlmAgentBackend(
+                        client = client,
+                        handles = AppGraph.handles,
+                        translator = com.eloykim.lyra.voice.TranslationService(client),
+                        targetLanguage = com.eloykim.lyra.settings
+                            .findLanguage(settings.languageId).english,
+                        inputPrice = modelRow?.inputPrice,
+                        outputPrice = modelRow?.outputPrice,
+                    )
+                }
+                val session = AgentSession(
+                    AidlGateway(),
+                    backend,
+                    recorder = history,
                     handles = AppGraph.handles,
-                    translator = com.eloykim.lyra.voice.TranslationService(client),
-                    targetLanguage = com.eloykim.lyra.settings
-                        .findLanguage(settings.languageId).english,
-                                                inputPrice = modelRow?.inputPrice,
-                                                outputPrice = modelRow?.outputPrice,
-                )
-            } else {
-                ScriptedBackend(demoSteps)
-            }
-            val session = AgentSession(
-                AidlGateway(),
-                backend,
-                recorder = history,
-                handles = AppGraph.handles,
-                apps = appCatalog,
-                voice = agentVoice,
-                searchChatHistory = { query, limit ->
-                    val result = AppGraph.commands.run(
-                        "chat_message.search",
-                        org.json.JSONObject()
-                            .put("query", query)
-                            .put("limit", limit),
-                    )
-                    ServiceText.format(result)
-                },
-                reactToMessage = { messageId, reaction ->
-                    val command = when (reaction) {
-                        "like" -> "chat_message.like"
-                        "dislike" -> "chat_message.dislike"
-                        else -> "chat_message.comment"
-                    }
-                    val args = org.json.JSONObject().put("messageId", messageId)
-                    if (command == "chat_message.comment") args.put("emoji", reaction)
-                    val result = AppGraph.commands.run(command, args)
-                    if (result.ok) null else result.message.ifBlank { "操作失败" }
-                },
-                quoteMessage = { messageId ->
-                    val result = AppGraph.commands.run(
-                        "chat_message.quote",
-                        org.json.JSONObject().put("messageId", messageId),
-                    )
-                    if (result.ok) {
-                        result.data.optString("markdown").ifBlank {
-                            ServiceText.format(result)
+                    apps = appCatalog,
+                    voice = agentVoice,
+                    searchChatHistory = { query, limit ->
+                        val result = AppGraph.commands.run(
+                            "chat_message.search",
+                            org.json.JSONObject()
+                                .put("query", query)
+                                .put("limit", limit),
+                        )
+                        ServiceText.format(result)
+                    },
+                    reactToMessage = { messageId, reaction ->
+                        val command = when (reaction) {
+                            "like" -> "chat_message.like"
+                            "dislike" -> "chat_message.dislike"
+                            else -> "chat_message.comment"
                         }
-                    } else {
-                        null
-                    }
-                },
-                budget = BudgetScheduler(
-                    BudgetVector(tokens = com.eloykim.lyra.DebugLaunch.budgetTokens, ms = com.eloykim.lyra.DebugLaunch.budgetMs, calls = 40, interrupts = com.eloykim.lyra.DebugLaunch.budgetInterrupts, moneyMicros = com.eloykim.lyra.DebugLaunch.budgetMoneyMicros),
-                ),
-                frames = object : com.eloykim.lyra.agent.FrameRecorder {
-                    override suspend fun record(
-                        runId: Long,
-                        frame: com.eloykim.lyra.attention.FrameDraft,
-                    ) {
-                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                            runCatching {
-                                history.frames.append(
-                                    runId = runId,
-                                    cycle = frame.cycle,
-                                    mode = frame.mode,
-                                    goal = frame.goal,
-                                    digest = frame.digest(),
-                                    payload = frame.toPayload(),
-                                )
+                        val args = org.json.JSONObject().put("messageId", messageId)
+                        if (command == "chat_message.comment") args.put("emoji", reaction)
+                        val result = AppGraph.commands.run(command, args)
+                        if (result.ok) null else result.message.ifBlank { "操作失败" }
+                    },
+                    quoteMessage = { messageId ->
+                        val result = AppGraph.commands.run(
+                            "chat_message.quote",
+                            org.json.JSONObject().put("messageId", messageId),
+                        )
+                        if (result.ok) {
+                            result.data.optString("markdown").ifBlank {
+                                ServiceText.format(result)
+                            }
+                        } else {
+                            null
+                        }
+                    },
+                    budget = BudgetScheduler(
+                        BudgetVector(
+                            tokens = com.eloykim.lyra.DebugLaunch.budgetTokens,
+                            ms = com.eloykim.lyra.DebugLaunch.budgetMs,
+                            calls = 40,
+                            interrupts = com.eloykim.lyra.DebugLaunch.budgetInterrupts,
+                            moneyMicros = com.eloykim.lyra.DebugLaunch.budgetMoneyMicros,
+                        ),
+                    ),
+                    frames = object : com.eloykim.lyra.agent.FrameRecorder {
+                        override suspend fun record(
+                            runId: Long,
+                            frame: com.eloykim.lyra.attention.FrameDraft,
+                        ) {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                runCatching {
+                                    history.frames.append(
+                                        runId = runId,
+                                        cycle = frame.cycle,
+                                        mode = frame.mode,
+                                        goal = frame.goal,
+                                        digest = frame.digest(),
+                                        payload = frame.toPayload(),
+                                    )
+                                }
                             }
                         }
-                    }
 
-                    override suspend fun markImpasse(runId: Long, state: String) {
-                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                            runCatching { history.frames.markImpasse(runId, state) }
+                        override suspend fun markImpasse(runId: Long, state: String) {
+                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                runCatching { history.frames.markImpasse(runId, state) }
+                            }
                         }
-                    }
-                },
-                events = com.eloykim.lyra.agent.EventSink { type, payload, refs ->
-                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                        runCatching { history.ledger.append("agent", type, payload, refs) }
-                    }
-                },
-            )
-            // P4 静默：只进通知栏，不打扰；同时给调试一个确定性投递点
-            LyraNotifications.post(NoticeLevel.SILENT, "任务已开始：$task", id = 100)
-            session.run(task).collect { event ->
-                demoLog = (demoLog + describeEvent(event, eventLabels)).takeLast(8)
-                when (event) {
-                    is AgentEvent.NeedsUser -> LyraNotifications.post(
-                        NoticeLevel.COMMITMENT,
-                        event.message,
-                        id = 101,
-                    )
+                    },
+                    events = com.eloykim.lyra.agent.EventSink { type, payload, refs ->
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            runCatching { history.ledger.append("agent", type, payload, refs) }
+                        }
+                    },
+                )
+                LyraNotifications.post(NoticeLevel.SILENT, "任务已开始：$task", id = 100)
+                session.run(task).collect { event ->
+                    demoLog = (demoLog + describeEvent(event, eventLabels)).takeLast(8)
+                    when (event) {
+                        is AgentEvent.Frame -> ampFrame = event
+                        is AgentEvent.Budget -> ampBudget = event
+                        is AgentEvent.NeedsUser -> {
+                            submitted = "等待确认 · ${event.message}"
+                            LyraNotifications.post(NoticeLevel.COMMITMENT, event.message, id = 101)
+                        }
 
-                    is AgentEvent.Failed -> LyraNotifications.post(
-                        NoticeLevel.OPPORTUNITY,
-                        event.reason,
-                        id = 102,
-                    )
+                        is AgentEvent.Failed -> {
+                            submitted = "任务失败 · ${event.reason}"
+                            LyraNotifications.post(NoticeLevel.OPPORTUNITY, event.reason, id = 102)
+                        }
 
-                    else -> Unit
+                        is AgentEvent.Finished -> {
+                            submitted = "任务完成 · ${event.steps} 步"
+                            voice.speak("任务完成，共 ${event.steps} 步")
+                            LyraNotifications.post(
+                                NoticeLevel.OPPORTUNITY,
+                                event.summary,
+                                title = "任务完成 · ${event.steps} 步",
+                                id = 103,
+                            )
+                        }
+
+                        else -> Unit
+                    }
+                    if (event is AgentEvent.Finished || event is AgentEvent.Failed) {
+                        recentRuns = runCatching { history.recentRuns(3) }.getOrDefault(emptyList())
+                    }
                 }
-                if (event is AgentEvent.Finished) {
-                    submitted = "任务完成 · ${event.steps} 步"
-                    voice.speak("任务完成，共 ${event.steps} 步")
-                    LyraNotifications.post(
-                        NoticeLevel.OPPORTUNITY,
-                        event.summary,
-                        title = "任务完成 · ${event.steps} 步",
-                        id = 103,
-                    )
-                    recentRuns = runCatching { history.recentRuns(3) }.getOrDefault(emptyList())
-                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (t: Throwable) {
+                val reason = t.message ?: t::class.java.simpleName
+                demoLog = (demoLog + "执行失败：$reason").takeLast(8)
+                submitted = "任务失败 · $reason"
+                LyraNotifications.post(NoticeLevel.OPPORTUNITY, reason, id = 102)
+                snackbarHostState.showSnackbar("任务失败：$reason")
+            } finally {
+                demoRunning = false
             }
-            demoRunning = false
         }
     }
-
     val lifecycleOwner = LocalLifecycleOwner.current
     var lastDebugTask by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
@@ -735,7 +785,10 @@ fun HomeScreen(
                     Spacer(Modifier.height(12.dp))
                     Button(
                         onClick = {
-                            startAgent(query.ifBlank { "打开计算器，按下 7 和 8，然后返回" })
+                            startAgent(
+                                query.ifBlank { "打开计算器，按下 7 和 8，然后返回" },
+                                demo = true,
+                            )
                         },
                         enabled = !demoRunning,
                     ) {
@@ -751,6 +804,23 @@ fun HomeScreen(
                                 modifier = Modifier.padding(vertical = 1.dp),
                             )
                         }
+                    }
+                    ampFrame?.let { frame ->
+                        Spacer(Modifier.height(10.dp))
+                        Text(
+                            text = "AMP · 焦点 ${frame.slots} / 忽略 ${frame.ignored} · " +
+                                "${frame.spentTokens}/${frame.allocatedTokens} tokens",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    ampBudget?.let { budget ->
+                        Text(
+                            text = "AMP 预算剩余：${budget.remainingTokens} tokens · " +
+                                "${budget.remainingCalls} 次调用 · ${budget.remainingMs}ms",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
                     }
                 }
             }
@@ -1148,6 +1218,8 @@ private data class EventLabels(
 
 private fun describeEvent(event: AgentEvent, l: EventLabels): String = when (event) {
     is AgentEvent.Started -> "${l.started} · ${event.task}"
+    is AgentEvent.Frame -> "AMP 帧 · 焦点 ${event.slots} / 忽略 ${event.ignored}"
+    is AgentEvent.Budget -> "AMP 预算 · ${event.remainingTokens} tokens 剩余"
     is AgentEvent.Observed -> "${l.observed} · ${event.observation.packageName} · ${event.observation.elements.size}"
     is AgentEvent.Decided -> "${l.decided} · ${describeVerb(event.verb)}"
     is AgentEvent.Acted -> "${l.acted} · ${describeVerb(event.verb)} → ${describeResult(event.result)}"

@@ -59,7 +59,7 @@ class ApplicationService(
                 summary = "列出已安装应用；可按名称/包名过滤",
                 parameters = Schema.params(
                     "query" to Schema.string("名称或包名片段"),
-                    "limit" to Schema.integer("数量上限", 1, 200),
+                    "limit" to Schema.integer("数量上限", 1, 2000),
                     "includeSystem" to Schema.boolean("是否包含系统应用；默认 true"),
                     "includeSelf" to Schema.boolean("是否包含 Lyra；默认 false"),
                 ),
@@ -80,14 +80,14 @@ class ApplicationService(
                 summary = "按名称/包名搜索应用",
                 parameters = Schema.params(
                     "query" to Schema.string("名称或包名片段"),
-                    "limit" to Schema.integer("数量上限", 1, 50),
+                    "limit" to Schema.integer("数量上限", 1, 2000),
                 ),
                 risk = ServiceRisk.READ,
             ),
         ) { args ->
             list(
                 query = args.reqString("query"),
-                limit = args.optIntOr("limit", 10),
+                limit = args.optIntOr("limit", 2000),
                 includeSystem = true,
                 includeSelf = false,
             )
@@ -151,7 +151,7 @@ class ApplicationService(
                     it.label.lowercase().contains(needle) ||
                     it.packageName.lowercase().contains(needle)
             }
-            .take(limit.coerceIn(1, 200))
+            .take(limit.coerceIn(1, 2000))
             .toList()
 
         val array = JSONArray()
