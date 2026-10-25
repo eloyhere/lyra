@@ -702,6 +702,10 @@ internal class ChatMessageItemView(context: Context) : LinearLayout(context) {
         avatar.visibility = if (isUser) GONE else VISIBLE
         avatar.background = oval(style.avatarBackground)
         avatar.setTextColor(style.avatarText)
+        // 头像按职位定制：命中职位给专属图标，否则退回首字
+        val authorName = message.authorName.orEmpty()
+        val positionEmoji = com.eloykim.lyra.attention.Positions.emojiOf(authorName)
+        avatar.text = if (positionEmoji != "🙂") positionEmoji else authorName.take(1).ifBlank { "L" }
         (avatar.layoutParams as? LayoutParams)?.let { params ->
             params.topMargin = dp(2)
             avatar.layoutParams = params
@@ -1444,6 +1448,7 @@ internal object ChatHtml {
                 .lyra-canvas {
                   position: relative;
                   width: 100%;
+                  height: auto;
                   margin: 8px 0;
                   overflow: hidden;
                   border-radius: 8px;
@@ -1651,6 +1656,8 @@ internal object ChatHtml {
                     canvas.width = w;
                     canvas.height = h;
                     var ctx = canvas.getContext("2d");
+                    if (!ctx) throw new Error("canvas 2d context unavailable");
+                    ctx.setTransform(1, 0, 0, 1, 0, 0);
                     ctx.clearRect(0, 0, w, h);
                     ctx.fillStyle = color(spec.background, "#fff");
                     ctx.fillRect(0, 0, w, h);
@@ -1845,9 +1852,19 @@ internal object ChatHtml {
                       try {
                         var spec = decodeSpec(box.getAttribute("data-spec") || "");
                         drawSpec(canvas, spec);
-                        var ratio = canvas.height / Math.max(1, canvas.width);
-                        box.style.height = Math.round(box.clientWidth * ratio) + "px";
+                        // 用 canvas 的固有比例撑开容器。首次布局 clientWidth 可能为 0，
+                        // 旧逻辑会算出高度 0，表现为随机白屏。
+                        box.style.aspectRatio = canvas.width + " / " + canvas.height;
+                        canvas.style.width = "100%";
+                        canvas.style.height = "auto";
                         attachGestures(box, canvas);
+                        requestAnimationFrame(function () {
+                          if (window.LyraHeight) {
+                            window.LyraHeight.postMessage(
+                              String(Math.max(document.body.scrollHeight, document.body.offsetHeight))
+                            );
+                          }
+                        });
                       } catch (e) {
                         box.textContent = "绘图数据无效";
                       }

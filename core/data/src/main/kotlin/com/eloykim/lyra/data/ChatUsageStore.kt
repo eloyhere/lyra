@@ -4,6 +4,18 @@ import android.content.ContentValues
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
+/** 按品牌/模型聚合的用量。 */
+data class UsageProviderSummary(
+    val providerId: String,
+    val model: String,
+    val inputTokens: Long = 0,
+    val outputTokens: Long = 0,
+    val costMicros: Long = 0,
+    val calls: Int = 0,
+) {
+    val totalTokens: Long get() = inputTokens + outputTokens
+}
+
 /** 聊天模型用量汇总。 */
 data class ChatUsageSummary(
     val inputTokens: Long = 0,
@@ -70,6 +82,38 @@ class ChatUsageStore internal constructor(private val helper: LyraDatabase) {
             )
         }
     }
+
+    suspend fun byProvider(days: Int = 7): List<UsageProviderSummary> =
+        withContext(Dispatchers.IO) {
+            val since = System.currentTimeMillis() - days.coerceIn(1, 30) * 86_400_000L
+            val result = ArrayList<UsageProviderSummary>()
+            helper.readableDatabase.rawQuery(
+                """
+                SELECT provider_id, model,
+                       COALESCE(SUM(input_tokens), 0),
+                       COALESCE(SUM(output_tokens), 0),
+                       COALESCE(SUM(cost_micros), 0),
+                       COUNT(*)
+                FROM chat_usage
+                WHERE created_at >= ?
+                GROUP BY provider_id, model
+                ORDER BY SUM(input_tokens + output_tokens) DESC
+                """.trimIndent(),
+                arrayOf(since.toString()),
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    result += UsageProviderSummary(
+                        providerId = cursor.getString(0) ?: "unknown",
+                        model = cursor.getString(1) ?: "—",
+                        inputTokens = cursor.getLong(2),
+                        outputTokens = cursor.getLong(3),
+                        costMicros = cursor.getLong(4),
+                        calls = cursor.getInt(5),
+                    )
+                }
+            }
+            result
+        }
 
     suspend fun forSession(conversationId: Long): ChatUsageSummary =
         withContext(Dispatchers.IO) {

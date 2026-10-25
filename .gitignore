@@ -1,0 +1,17 @@
+# Gradle / IDE
+.gradle/
+build/
+*/build/
+**/build/
+.idea/
+.kotlin/
+local.properties
+
+# 本地临时
+.scratch/
+*.log
+*.hprof
+
+# 系统
+.DS_Store
+Thumbs.db

@@ -3,6 +3,7 @@ package com.eloykim.lyra.ui.group
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +50,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
@@ -88,6 +90,17 @@ import kotlinx.coroutines.launch
 fun GroupChatScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var snapshot by remember { mutableStateOf<GroupChatSnapshot?>(null) }
+        var typingAgentId by remember { mutableStateOf<Long?>(null) }
+        var streamingText by remember { mutableStateOf("") }
+        var streamingReason by remember { mutableStateOf("") }
+
+    var groupTasks by remember { mutableStateOf<List<com.eloykim.lyra.data.GroupTaskRecord>>(emptyList()) }
+    val refreshTasks: suspend () -> Unit = {
+        runCatching {
+            val sid = com.eloykim.lyra.AppGraph.history.groupChat.latestSession()?.id
+            if (sid != null) groupTasks = com.eloykim.lyra.AppGraph.history.groupChat.tasks(sid)
+        }
+    }
     var session by remember { mutableStateOf<GroupChatSession?>(null) }
     var input by remember { mutableStateOf("") }
     var mentionMenu by remember { mutableStateOf(false) }
@@ -182,10 +195,7 @@ fun GroupChatScreen(onBack: () -> Unit) {
             if (targets.none { it.id == target.id }) targets += target
         }
         if (text.isEmpty()) return
-        if (targets.isEmpty()) {
-            error = "必须 @ 一个 Agent，或引用一条 Agent 消息"
-            return
-        }
+        // 不强制 @：没点名时由群内注意力仲裁选发言人
         val current = session ?: return
         val currentData = snapshot ?: return
         val mentions = targets.joinToString(" ") { "@${it.nickname}" }
@@ -204,6 +214,18 @@ fun GroupChatScreen(onBack: () -> Unit) {
                     agents = currentData.agents,
                     roles = currentData.roles,
                     quote = quoteSnapshot,
+                    onTyping = { who ->
+                        typingAgentId = who
+                        if (who != null) {
+                            streamingText = ""
+                            streamingReason = ""
+                        }
+                    },
+                    onDelta = { who, piece, think ->
+                        typingAgentId = who
+                        streamingText += piece
+                        if (think != null) streamingReason += think
+                    },
                 )
                 if (count == 0) error = "这条消息没有 @ 任何 Agent"
                 reload()
@@ -238,6 +260,7 @@ fun GroupChatScreen(onBack: () -> Unit) {
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+
                         }
                         DropdownMenu(
                             expanded = sessionMenu,
@@ -299,81 +322,6 @@ fun GroupChatScreen(onBack: () -> Unit) {
                 },
                 actions = {
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box {
-                            var expanded by remember { mutableStateOf(false) }
-                            TextButton(onClick = { expanded = true }) {
-                                Text(
-                                    text = selectedScenario?.name ?: "场景",
-                                    maxLines = 1,
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = expanded,
-                                onDismissRequest = { expanded = false },
-                            ) {
-                                scenarios.forEach { scenario ->
-                                    DropdownMenuItem(
-                                        text = { Text(scenario.name) },
-                                        onClick = {
-                                            expanded = false
-                                            selectedScenarioId = scenario.id
-                                            val roles = data?.roles.orEmpty().filter {
-                                                it.scenarioId == scenario.id
-                                            }
-                                            selectedRoleId = roles.firstOrNull()?.id
-                                            editingScenario = scenario
-                                            scope.launch {
-                                                data?.session?.id?.let { sessionId ->
-                                                    AppGraph.history.groupChat.setSessionScenario(
-                                                        sessionId,
-                                                        scenario.id,
-                                                        selectedRoleId,
-                                                    )
-                                                }
-                                            }
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                        Box {
-                            var expanded by remember { mutableStateOf(false) }
-                            TextButton(onClick = { expanded = true }) {
-                                Text(
-                                    text = selectedRole?.name ?: "角色",
-                                    maxLines = 1,
-                                    style = MaterialTheme.typography.labelSmall,
-                                )
-                            }
-                            DropdownMenu(
-                                expanded = expanded,
-                                onDismissRequest = { expanded = false },
-                            ) {
-                                scenarioRoles.forEach { role ->
-                                    DropdownMenuItem(
-                                        text = { Text("${role.name} · ${role.model}") },
-                                        onClick = {
-                                            expanded = false
-                                            selectedRoleId = role.id
-                                            editingRole = role
-                                            scope.launch {
-                                                data?.session?.id?.let { sessionId ->
-                                                    AppGraph.history.groupChat.setSessionScenario(
-                                                        sessionId,
-                                                        selectedScenarioId,
-                                                        role.id,
-                                                    )
-                                                }
-                                            }
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                        IconButton(onClick = { mentionMenu = !mentionMenu }) {
-                            Text("@", style = MaterialTheme.typography.titleLarge)
-                        }
                     }
                 },
             )
@@ -393,13 +341,54 @@ fun GroupChatScreen(onBack: () -> Unit) {
 
             AgentStrip(
                 agents = data.agents,
-                onAgentClick = { editAgent = it },
-                onAdd = { showAdd = true },
+                onLongPress = { name ->
+                    // 长按职位：@ 对应的人（没有对应成员时退化为 @职位名）
+                    val nick = data.agents.firstOrNull { it.nickname.contains(name) }?.nickname ?: name
+                    input = (if (input.isBlank()) "" else input.trimEnd() + " ") + "@$nick "
+                },
+            )
+            TaskStrip(
+                tasks = groupTasks,
+                onAdvance = { task ->
+                    scope.launch {
+                        val next = when (task.state) {
+                            "proposed", "claimed" -> "doing"
+                            "doing" -> "done"
+                            "blocked" -> "doing"
+                            else -> "done"
+                        }
+                        com.eloykim.lyra.AppGraph.history.groupChat.moveTask(task.id, next)
+                        refreshTasks()
+                    }
+                },
             )
             HorizontalDivider()
 
             ChatMessageList(
-                messages = data.messages.map { it.toChatMessage() },
+                messages = data.messages.map { record ->
+                    val agent = data.agents.firstOrNull { it.id == record.authorId }
+                    val title = agent?.positionKey?.let {
+                        com.eloykim.lyra.attention.Positions.byKey(it)?.title
+                    } ?: data.roles.firstOrNull { it.id == agent?.roleId }?.name
+                    record.toChatMessage(authorOverride = title)
+                }.let { list ->
+                    val typing = typingAgentId?.let { id -> data.agents.firstOrNull { it.id == id } }
+                    if (typing == null) {
+                        list
+                    } else {
+                        val name = typing.positionKey?.let {
+                            com.eloykim.lyra.attention.Positions.byKey(it)?.title
+                        } ?: typing.nickname
+                        list + ChatMessage(
+                            id = -1L,
+                            role = ChatRole.Assistant,
+                            content = if (streamingText.isBlank()) "输入中…" else streamingText,
+                            reasoning = streamingReason.takeIf { it.isNotBlank() },
+                            pending = true,
+                            authorName = name,
+                        )
+                    }
+                },
                 style = chatStyle,
                 onReaction = { _, _ -> },
                 onQuote = { id -> quoted = data.messages.firstOrNull { it.id == id } },
@@ -462,50 +451,6 @@ fun GroupChatScreen(onBack: () -> Unit) {
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Box {
-                        OutlinedButton(onClick = { mentionMenu = true }) {
-                            Text(
-                                text = if (activeAgents.isEmpty()) {
-                                    "@ 提醒谁"
-                                } else {
-                                    "@ 已选 ${activeAgents.size} 人"
-                                },
-                            )
-                        }
-                        DropdownMenu(
-                            expanded = mentionMenu,
-                            onDismissRequest = { mentionMenu = false },
-                        ) {
-                            if (data.agents.isEmpty()) {
-                                DropdownMenuItem(
-                                    text = { Text("还没有 Agent，先点上方 + 添加") },
-                                    onClick = { mentionMenu = false },
-                                )
-                            }
-                            data.agents.forEach { agent ->
-                                val checked = agent.id in selectedAgents
-                                DropdownMenuItem(
-                                    text = {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Checkbox(
-                                                checked = checked,
-                                                onCheckedChange = null,
-                                            )
-                                            Spacer(Modifier.width(8.dp))
-                                            Text(agent.nickname)
-                                        }
-                                    },
-                                    onClick = {
-                                        selectedAgents = if (checked) {
-                                            selectedAgents - agent.id
-                                        } else {
-                                            selectedAgents + agent.id
-                                        }
-                                    },
-                                )
-                            }
-                        }
-                    }
                     if (activeAgents.isNotEmpty()) {
                         Spacer(Modifier.width(8.dp))
                         Text(
@@ -683,64 +628,46 @@ fun GroupChatScreen(onBack: () -> Unit) {
 @Composable
 private fun AgentStrip(
     agents: List<GroupAgentRecord>,
-    onAgentClick: (GroupAgentRecord) -> Unit,
-    onAdd: () -> Unit,
+    onLongPress: (String) -> Unit = {},
 ) {
-    Row(
+    // 三层，各自独立横向滚动
+    val tiers = remember {
+        com.eloykim.lyra.attention.Positions.hierarchy().map { row -> row.map { it.title } }
+    }
+
+    Column(
         modifier = Modifier
             .fillMaxWidth()
-            .horizontalScroll(rememberScrollState())
             .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        agents.forEach { agent ->
-            Column(
-                horizontalAlignment = Alignment.CenterHorizontally,
-                modifier = Modifier
-                    .width(64.dp)
-                    .clickable { onAgentClick(agent) },
+        tiers.forEach { row ->
+            Row(
+                modifier = Modifier.horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(42.dp)
-                        .clip(CircleShape)
-                        .background(avatarColor(agent.nickname)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = agent.nickname.take(1).uppercase(),
-                        color = Color.White,
-                        fontWeight = FontWeight.Bold,
-                    )
+                row.forEach { label ->
+                    val emoji = com.eloykim.lyra.attention.Positions.emojiOf(label)
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant)
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                    ) {
+                        Text(
+                            text = "$emoji $label",
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
-                Text(
-                    text = agent.nickname,
-                    style = MaterialTheme.typography.labelSmall,
-                    maxLines = 1,
-                )
             }
-        }
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier
-                .width(64.dp)
-                .clickable(onClick = onAdd),
-        ) {
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text("+", style = MaterialTheme.typography.titleLarge)
-            }
-            Text("添加", style = MaterialTheme.typography.labelSmall)
         }
     }
 }
 
 @Composable
+
 private fun MentionPicker(
     agents: List<GroupAgentRecord>,
     onPick: (String) -> Unit,
@@ -816,12 +743,12 @@ private fun GroupMessageBubble(message: GroupMessageRecord) {
     }
 }
 
-private fun GroupMessageRecord.toChatMessage(): ChatMessage = ChatMessage(
+private fun GroupMessageRecord.toChatMessage(authorOverride: String? = null): ChatMessage = ChatMessage(
     id = id,
     role = if (role == "user") ChatRole.User else ChatRole.Assistant,
     content = content,
     createdAt = createdAt,
-    authorName = authorName.takeIf { role != "user" },
+    authorName = (authorOverride ?: authorName).takeIf { role != "user" },
     quote = quotedContent?.let { content ->
         MessageQuote(
             messageId = quotedId ?: 0L,
@@ -1163,4 +1090,51 @@ private fun RoleDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("取消") } },
     )
+}
+
+/** 任务板：只显示未完成的任务，点一下推进状态，末尾加按钮新建。 */
+@Composable
+private fun TaskStrip(
+    tasks: List<com.eloykim.lyra.data.GroupTaskRecord>,
+    onAdvance: (com.eloykim.lyra.data.GroupTaskRecord) -> Unit,
+) {
+    val open = tasks.filter { it.state != "done" && it.state != "dropped" }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        open.forEach { task ->
+            val color = when (task.state) {
+                "doing" -> MaterialTheme.colorScheme.primary
+                "blocked" -> MaterialTheme.colorScheme.error
+                else -> MaterialTheme.colorScheme.outline
+            }
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .clickable { onAdvance(task) }
+                    .padding(horizontal = 10.dp, vertical = 6.dp),
+            ) {
+                Text(
+                    text = "${stateLabel(task.state)} · ${task.title}",
+                    style = MaterialTheme.typography.labelMedium,
+                    color = color,
+                )
+            }
+        }
+    }
+}
+
+private fun stateLabel(state: String): String = when (state) {
+    "proposed" -> "待认领"
+    "claimed" -> "已认领"
+    "doing" -> "进行中"
+    "blocked" -> "阻塞"
+    "done" -> "完成"
+    "dropped" -> "取消"
+    else -> state
 }

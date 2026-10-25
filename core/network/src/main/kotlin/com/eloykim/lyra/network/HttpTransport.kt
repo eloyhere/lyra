@@ -15,6 +15,16 @@ import java.net.URL
 interface HttpTransport {
     suspend fun post(url: String, headers: Map<String, String>, body: String): String
     suspend fun get(url: String, headers: Map<String, String>): String
+
+    /** 逐行读取响应（SSE）；默认实现退化为整段读取后按行回调。 */
+    suspend fun postStream(
+        url: String,
+        headers: Map<String, String>,
+        body: String,
+        onLine: (String) -> Unit,
+    ) {
+        post(url, headers, body).lineSequence().forEach(onLine)
+    }
 }
 
 class UrlConnectionTransport : HttpTransport {
@@ -28,6 +38,37 @@ class UrlConnectionTransport : HttpTransport {
         withContext(Dispatchers.IO) {
             request("GET", url, headers, null)
         }
+
+    override suspend fun postStream(
+        url: String,
+        headers: Map<String, String>,
+        body: String,
+        onLine: (String) -> Unit,
+    ) = withContext(Dispatchers.IO) {
+        val connection = (URL(url).openConnection() as HttpURLConnection).apply {
+            requestMethod = "POST"
+            connectTimeout = 15_000
+            readTimeout = 300_000
+            headers.forEach { (key, value) -> setRequestProperty(key, value) }
+            doOutput = true
+            setRequestProperty("Content-Type", "application/json; charset=utf-8")
+            setRequestProperty("Accept", "text/event-stream")
+        }
+        try {
+            connection.outputStream.use { it.write(body.toByteArray(Charsets.UTF_8)) }
+            val code = connection.responseCode
+            if (code !in 200..299) {
+                throw LlmHttpException(code, connection.errorStream?.bufferedReader()?.readText().orEmpty().take(500))
+            }
+            connection.inputStream.bufferedReader().useLines { lines ->
+                lines.forEach(onLine)
+            }
+        } catch (e: IOException) {
+            throw LlmHttpException(-1, e.message ?: "网络错误")
+        } finally {
+            connection.disconnect()
+        }
+    }
 
     private fun request(
         method: String,

@@ -670,7 +670,7 @@ internal object ChatController {
                 appendLine()
                 appendLine()
                 appendLine("可用手机服务（service.method；聊天里禁止操作屏幕）：")
-                append(serviceCatalog)
+                append(serviceCatalog.take(2_500))
             }
             appendLine()
             appendLine("需要手机信息时调用 lyra_service；不要编造服务结果。")
@@ -686,9 +686,9 @@ internal object ChatController {
             turns = history.mapIndexed { index, message ->
                 com.eloykim.lyra.attention.ChatTurn(index.toLong(), message.role, message.content)
             },
-            keepRecent = 12,
-            maxTurns = 40,
-            maxChars = 6_000,
+            keepRecent = com.eloykim.lyra.chat.ChatContextPolicy.KEEP_RECENT,
+            maxTurns = com.eloykim.lyra.chat.ChatContextPolicy.MAX_TURNS,
+            maxChars = com.eloykim.lyra.chat.ChatContextPolicy.MAX_CHARS,
         )
         val historyForModel: List<LlmMessage> = if (condensed.condensed) {
             buildList {

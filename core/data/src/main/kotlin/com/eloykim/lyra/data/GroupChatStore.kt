@@ -34,6 +34,7 @@ data class GroupSessionRecord(
     val updatedAt: Long,
     val tokenBudget: Long = 0,
     val tokensUsed: Long = 0,
+    val quotaTokens: Long = 0,
     val replyPolicy: String = "",
     val scenarioId: Long? = null,
     val roleId: Long? = null,
@@ -45,6 +46,9 @@ data class GroupAgentRecord(
     val roleId: Long?,
     val nickname: String,
     val identity: String,
+    val positionKey: String? = null,
+    val tokensUsed: Long = 0,
+    val quotaTokens: Long = 0,
     val createdAt: Long,
 )
 
@@ -67,6 +71,53 @@ data class GroupMessageRecord(
  *
  * 群聊与 1:1 的 chat_messages 完全分开；这里不做整表快照，按行追加。
  */
+/** 任务板上的一行：谁负责、什么状态、卡在谁身上。 */
+data class GroupTaskRecord(
+    val id: Long,
+    val sessionId: Long,
+    val title: String,
+    val ownerAgentId: Long?,
+    val state: String,
+    val dependsOn: Long?,
+    val dueAt: Long?,
+    val warrantTier: String?,
+    val createdAt: Long,
+    val updatedAt: Long,
+    val dissentCount: Int = 0,
+    val manifestDigest: String? = null,
+)
+
+/** 一条承诺：谁答应谁、答应什么、什么算完成。 */
+data class GroupCommitmentRecord(
+    val id: Long,
+    val sessionId: Long,
+    val fromAgent: Long,
+    val toAgent: Long,
+    val proposition: String,
+    val satisfaction: String,
+    val state: String,
+    val dueAt: Long?,
+    val createdAt: Long,
+    val updatedAt: Long,
+)
+
+/** 一条未知：blocking 的会阻止开工，回答后解除。 */
+data class AgentUsage(
+    val agentId: Long,
+    val tokens: Long,
+    val costMicros: Long,
+    val calls: Int,
+)
+
+data class GroupUnknownRecord(
+    val id: Long,
+    val sessionId: Long,
+    val question: String,
+    val blocking: Boolean,
+    val resolved: Boolean,
+    val raisedBy: Long?,
+    val createdAt: Long,
+)
 class GroupChatStore internal constructor(private val helper: LyraDatabase) {
 
     suspend fun roles(scenarioId: Long? = null): List<GroupRoleRecord> =
@@ -493,6 +544,8 @@ class GroupChatStore internal constructor(private val helper: LyraDatabase) {
                 put("updated_at", now)
             },
         )
+        // 建群即预置职位：董事长/总经理/财务/记录者，不依赖后续迁移
+        seedPositions(id)
         GroupSessionRecord(id, title.trim().ifBlank { "群聊" }, now, now)
     }
 
@@ -540,6 +593,64 @@ class GroupChatStore internal constructor(private val helper: LyraDatabase) {
             },
         )
     }
+
+    /** 按成员汇总：token、金额、调用次数。 */
+    suspend fun usageByAgent(sessionId: Long): List<AgentUsage> = withContext(Dispatchers.IO) {
+        val out = ArrayList<AgentUsage>()
+        helper.readableDatabase.rawQuery(
+            """
+            SELECT agent_id,
+                   COALESCE(SUM(input_tokens + output_tokens), 0),
+                   COALESCE(SUM(cost_micros), 0),
+                   COUNT(*)
+            FROM group_usage WHERE session_id = ? AND agent_id IS NOT NULL
+            GROUP BY agent_id
+            """.trimIndent(),
+            arrayOf(sessionId.toString()),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                out += AgentUsage(
+                    agentId = cursor.getLong(0),
+                    tokens = cursor.getLong(1),
+                    costMicros = cursor.getLong(2),
+                    calls = cursor.getInt(3),
+                )
+            }
+        }
+        out
+    }
+
+    suspend fun usageByProvider(days: Int = 7): List<UsageProviderSummary> =
+        withContext(Dispatchers.IO) {
+            val since = System.currentTimeMillis() - days.coerceIn(1, 30) * 86_400_000L
+            val result = ArrayList<UsageProviderSummary>()
+            helper.readableDatabase.rawQuery(
+                """
+                SELECT provider_id, model,
+                       COALESCE(SUM(input_tokens), 0),
+                       COALESCE(SUM(output_tokens), 0),
+                       COALESCE(SUM(cost_micros), 0),
+                       COUNT(*)
+                FROM group_usage
+                WHERE created_at >= ?
+                GROUP BY provider_id, model
+                ORDER BY SUM(input_tokens + output_tokens) DESC
+                """.trimIndent(),
+                arrayOf(since.toString()),
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    result += UsageProviderSummary(
+                        providerId = cursor.getString(0) ?: "unknown",
+                        model = cursor.getString(1) ?: "—",
+                        inputTokens = cursor.getLong(2),
+                        outputTokens = cursor.getLong(3),
+                        costMicros = cursor.getLong(4),
+                        calls = cursor.getInt(5),
+                    )
+                }
+            }
+            result
+        }
 
     suspend fun usageSummary(days: Int = 7): ChatUsageSummary = withContext(Dispatchers.IO) {
         val since = System.currentTimeMillis() - days.coerceIn(1, 30) * 86_400_000L
@@ -604,10 +715,375 @@ class GroupChatStore internal constructor(private val helper: LyraDatabase) {
         roleId = getLong(8).takeIf { !isNull(8) },
     )
 
+    /** 职务表：默认四席 + 用户自建；未初始化时返回默认值。 */
+    suspend fun positions(sessionId: Long): List<com.eloykim.lyra.attention.Position> = withContext(Dispatchers.IO) {
+        val out = ArrayList<com.eloykim.lyra.attention.Position>()
+        helper.readableDatabase.rawQuery(
+            "SELECT key, title, capabilities, system, sort_order FROM group_positions WHERE session_id = ? ORDER BY sort_order",
+            arrayOf(sessionId.toString()),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                out += com.eloykim.lyra.attention.Position(
+                    key = cursor.getString(0),
+                    title = cursor.getString(1),
+                    capabilities = cursor.getString(2).split("|").filter { it.isNotBlank() },
+                    system = cursor.getInt(3) == 1,
+                    order = cursor.getInt(4),
+                )
+            }
+        }
+        if (out.isEmpty()) com.eloykim.lyra.attention.Positions.defaults else out
+    }
+
+    /** 写入默认职务（幂等）。 */
+    suspend fun seedPositions(sessionId: Long) = withContext(Dispatchers.IO) {
+        // 预置会随版本调整：先清掉旧的系统职位再写，保证与代码一致
+        helper.writableDatabase.delete("group_positions", "session_id = ? AND system = 1", arrayOf(sessionId.toString()))
+        com.eloykim.lyra.attention.Positions.defaults.forEach { position ->
+            helper.writableDatabase.insertWithOnConflict(
+                "group_positions", null,
+                android.content.ContentValues().apply {
+                    put("session_id", sessionId)
+                    put("key", position.key)
+                    put("title", position.title)
+                    put("capabilities", position.capabilities.joinToString("|"))
+                    put("system", if (position.system) 1 else 0)
+                    put("sort_order", position.order)
+                },
+                android.database.sqlite.SQLiteDatabase.CONFLICT_IGNORE,
+            )
+        }
+    }
+    /** 读取持久化的核心座位；为空表示尚未重建。 */
+    suspend fun seats(sessionId: Long): Map<String, Long> = withContext(Dispatchers.IO) {
+        val map = LinkedHashMap<String, Long>()
+        helper.readableDatabase.rawQuery(
+            "SELECT seat, agent_id FROM group_seats WHERE session_id = ?",
+            arrayOf(sessionId.toString()),
+        ).use { cursor ->
+            while (cursor.moveToNext()) map[cursor.getString(0)] = cursor.getLong(1)
+        }
+        map
+    }
+
+    /** 重建座位：总经理=第一成员，财务=第二成员，记录者=程序（-1）。 */
+    suspend fun rebuildSeats(sessionId: Long, memberIds: List<Long>) = withContext(Dispatchers.IO) {
+        val ordered = memberIds.distinct().sorted()
+        val now = System.currentTimeMillis()
+        val db = helper.writableDatabase
+        db.beginTransaction()
+        try {
+            db.delete("group_seats", "session_id = ?", arrayOf(sessionId.toString()))
+            val assignments = LinkedHashMap<String, Long>()
+            ordered.getOrNull(0)?.let { assignments["GENERAL_MANAGER"] = it }
+            ordered.getOrNull(1)?.let { assignments["FINANCE"] = it }
+            assignments["RECORDER"] = -1L
+            assignments.forEach { (seat, agentId) ->
+                db.insertWithOnConflict(
+                    "group_seats", null,
+                    android.content.ContentValues().apply {
+                        put("session_id", sessionId)
+                        put("seat", seat)
+                        put("agent_id", agentId)
+                        put("updated_at", now)
+                    },
+                    android.database.sqlite.SQLiteDatabase.CONFLICT_REPLACE,
+                )
+            }
+            db.setTransactionSuccessful()
+        } finally {
+            db.endTransaction()
+        }
+    }
+    suspend fun tasks(sessionId: Long): List<GroupTaskRecord> = withContext(Dispatchers.IO) {
+        val out = ArrayList<GroupTaskRecord>()
+        helper.readableDatabase.rawQuery(
+            "SELECT id, session_id, title, owner_agent_id, state, depends_on, due_at, warrant_tier, created_at, updated_at, dissent_count, manifest_digest " +
+                "FROM group_tasks WHERE session_id = ? ORDER BY id",
+            arrayOf(sessionId.toString()),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                out += GroupTaskRecord(
+                    id = cursor.getLong(0),
+                    sessionId = cursor.getLong(1),
+                    title = cursor.getString(2),
+                    ownerAgentId = if (cursor.isNull(3)) null else cursor.getLong(3),
+                    state = cursor.getString(4),
+                    dependsOn = if (cursor.isNull(5)) null else cursor.getLong(5),
+                    dueAt = if (cursor.isNull(6)) null else cursor.getLong(6),
+                    warrantTier = cursor.getString(7),
+                    createdAt = cursor.getLong(8),
+                    updatedAt = cursor.getLong(9),
+                    dissentCount = cursor.getInt(10),
+                )
+            }
+        }
+        out
+    }
+
+    suspend fun createTask(
+        sessionId: Long,
+        title: String,
+        ownerAgentId: Long? = null,
+        dueAt: Long? = null,
+        warrantTier: String? = null,
+        manifestDigest: String? = null,
+    ): Long = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        helper.writableDatabase.insertOrThrow(
+            "group_tasks",
+            null,
+            ContentValues().apply {
+                put("session_id", sessionId)
+                put("title", title.trim())
+                put("owner_agent_id", ownerAgentId)
+                put("state", if (ownerAgentId == null) "proposed" else "claimed")
+                put("due_at", dueAt)
+                put("warrant_tier", warrantTier)
+                put("manifest_digest", manifestDigest)
+                put("created_at", now)
+                put("updated_at", now)
+            },
+        )
+    }
+
+    /** 记一票反对：用于虚假共识检测。 */
+    suspend fun addDissent(taskId: Long): Int = withContext(Dispatchers.IO) {
+        helper.writableDatabase.execSQL(
+            "UPDATE group_tasks SET dissent_count = dissent_count + 1, updated_at = ? WHERE id = ?",
+            arrayOf(System.currentTimeMillis(), taskId),
+        )
+        helper.readableDatabase.rawQuery(
+            "SELECT dissent_count FROM group_tasks WHERE id = ?",
+            arrayOf(taskId.toString()),
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getInt(0) else 0 }
+    }
+
+    suspend fun moveTask(taskId: Long, state: String): Boolean = withContext(Dispatchers.IO) {
+        helper.writableDatabase.update(
+            "group_tasks",
+            ContentValues().apply {
+                put("state", state)
+                put("updated_at", System.currentTimeMillis())
+            },
+            "id = ?",
+            arrayOf(taskId.toString()),
+        ) > 0
+    }
+
+    suspend fun claimTask(taskId: Long, agentId: Long): Boolean = withContext(Dispatchers.IO) {
+        helper.writableDatabase.update(
+            "group_tasks",
+            ContentValues().apply {
+                put("owner_agent_id", agentId)
+                put("state", "claimed")
+                put("updated_at", System.currentTimeMillis())
+            },
+            "id = ? AND owner_agent_id IS NULL",
+            arrayOf(taskId.toString()),
+        ) > 0
+    }
+    suspend fun commitments(sessionId: Long): List<GroupCommitmentRecord> = withContext(Dispatchers.IO) {
+        val out = ArrayList<GroupCommitmentRecord>()
+        helper.readableDatabase.rawQuery(
+            "SELECT id, session_id, from_agent, to_agent, proposition, satisfaction, state, due_at, created_at, updated_at " +
+                "FROM group_commitments WHERE session_id = ? ORDER BY id",
+            arrayOf(sessionId.toString()),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                out += GroupCommitmentRecord(
+                    id = cursor.getLong(0),
+                    sessionId = cursor.getLong(1),
+                    fromAgent = cursor.getLong(2),
+                    toAgent = cursor.getLong(3),
+                    proposition = cursor.getString(4),
+                    satisfaction = cursor.getString(5),
+                    state = cursor.getString(6),
+                    dueAt = if (cursor.isNull(7)) null else cursor.getLong(7),
+                    createdAt = cursor.getLong(8),
+                    updatedAt = cursor.getLong(9),
+                )
+            }
+        }
+        out
+    }
+
+    suspend fun postCommitment(
+        sessionId: Long,
+        fromAgent: Long,
+        toAgent: Long,
+        proposition: String,
+        satisfaction: String,
+        dueAt: Long? = null,
+    ): Long = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        helper.writableDatabase.insertOrThrow(
+            "group_commitments",
+            null,
+            ContentValues().apply {
+                put("session_id", sessionId)
+                put("from_agent", fromAgent)
+                put("to_agent", toAgent)
+                put("proposition", proposition)
+                put("satisfaction", satisfaction)
+                put("state", "posted")
+                put("due_at", dueAt)
+                put("created_at", now)
+                put("updated_at", now)
+            },
+        )
+    }
+
+    suspend fun setCommitmentState(id: Long, state: String): Boolean = withContext(Dispatchers.IO) {
+        helper.writableDatabase.update(
+            "group_commitments",
+            ContentValues().apply {
+                put("state", state)
+                put("updated_at", System.currentTimeMillis())
+            },
+            "id = ?",
+            arrayOf(id.toString()),
+        ) > 0
+    }
+    suspend fun raiseUnknown(
+        sessionId: Long,
+        question: String,
+        blocking: Boolean = true,
+        raisedBy: Long? = null,
+    ): Long = withContext(Dispatchers.IO) {
+        helper.writableDatabase.insertOrThrow(
+            "group_unknowns",
+            null,
+            ContentValues().apply {
+                put("session_id", sessionId)
+                put("question", question.trim())
+                put("blocking", if (blocking) 1 else 0)
+                put("resolved", 0)
+                put("raised_by", raisedBy)
+                put("created_at", System.currentTimeMillis())
+            },
+        )
+    }
+
+    suspend fun resolveUnknown(id: Long): Boolean = withContext(Dispatchers.IO) {
+        helper.writableDatabase.update(
+            "group_unknowns",
+            ContentValues().apply {
+                put("resolved", 1)
+                put("resolved_at", System.currentTimeMillis())
+            },
+            "id = ?",
+            arrayOf(id.toString()),
+        ) > 0
+    }
+
+    suspend fun unknowns(sessionId: Long): List<GroupUnknownRecord> = withContext(Dispatchers.IO) {
+        val out = ArrayList<GroupUnknownRecord>()
+        helper.readableDatabase.rawQuery(
+            "SELECT id, session_id, question, blocking, resolved, raised_by, created_at " +
+                "FROM group_unknowns WHERE session_id = ? ORDER BY id",
+            arrayOf(sessionId.toString()),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                out += GroupUnknownRecord(
+                    id = cursor.getLong(0),
+                    sessionId = cursor.getLong(1),
+                    question = cursor.getString(2),
+                    blocking = cursor.getInt(3) == 1,
+                    resolved = cursor.getInt(4) == 1,
+                    raisedBy = if (cursor.isNull(5)) null else cursor.getLong(5),
+                    createdAt = cursor.getLong(6),
+                )
+            }
+        }
+        out
+    }
+    suspend fun appendManifest(sessionId: Long, digest: String, payload: String) = withContext(Dispatchers.IO) {
+        helper.writableDatabase.insertOrThrow(
+            "group_manifests",
+            null,
+            ContentValues().apply {
+                put("session_id", sessionId)
+                put("digest", digest)
+                put("payload", payload)
+                put("created_at", System.currentTimeMillis())
+            },
+        )
+    }
+
+    /** 最近一次团队清单：返回 digest 与 payload。 */
+    suspend fun latestManifest(sessionId: Long): Pair<String, String>? = withContext(Dispatchers.IO) {
+        helper.readableDatabase.rawQuery(
+            "SELECT digest, payload FROM group_manifests WHERE session_id = ? ORDER BY id DESC LIMIT 1",
+            arrayOf(sessionId.toString()),
+        ).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) to cursor.getString(1) else null
+        }
+    }
+    suspend fun createStaffing(
+        sessionId: Long,
+        positionKey: String,
+        nickname: String,
+        requestedBy: Long? = null,
+    ): Long = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        helper.writableDatabase.insertOrThrow(
+            "group_staffing", null,
+            ContentValues().apply {
+                put("session_id", sessionId)
+                put("position_key", positionKey)
+                put("nickname", nickname)
+                put("requested_by", requestedBy)
+                put("state", "proposed")
+                put("created_at", now)
+                put("updated_at", now)
+            },
+        )
+    }
+
+    /** 部门审批：finance / resource / hr；三项齐全后由人力部创建成员。 */
+    suspend fun approveStaffing(id: Long, department: String): Boolean = withContext(Dispatchers.IO) {
+        val column = when (department) {
+            "finance" -> "finance_ok"
+            "resource" -> "resource_ok"
+            "hr" -> "hr_ok"
+            else -> return@withContext false
+        }
+        helper.writableDatabase.execSQL(
+            "UPDATE group_staffing SET $column = 1, updated_at = ? WHERE id = ?",
+            arrayOf(System.currentTimeMillis(), id),
+        )
+        true
+    }
+
+    suspend fun staffingRequest(id: Long): Map<String, Any?>? = withContext(Dispatchers.IO) {
+        helper.readableDatabase.rawQuery(
+            "SELECT session_id, position_key, nickname, finance_ok, resource_ok, hr_ok, agent_id FROM group_staffing WHERE id = ?",
+            arrayOf(id.toString()),
+        ).use { cursor ->
+            if (!cursor.moveToFirst()) return@withContext null
+            mapOf(
+                "sessionId" to cursor.getLong(0),
+                "positionKey" to cursor.getString(1),
+                "nickname" to cursor.getString(2),
+                "financeOk" to (cursor.getInt(3) == 1),
+                "resourceOk" to (cursor.getInt(4) == 1),
+                "hrOk" to (cursor.getInt(5) == 1),
+                "agentId" to if (cursor.isNull(6)) null else cursor.getLong(6),
+            )
+        }
+    }
+
+    suspend fun markStaffingCreated(id: Long, agentId: Long) = withContext(Dispatchers.IO) {
+        helper.writableDatabase.execSQL(
+            "UPDATE group_staffing SET state = 'created', agent_id = ?, updated_at = ? WHERE id = ?",
+            arrayOf(agentId, System.currentTimeMillis(), id),
+        )
+    }
     suspend fun agents(sessionId: Long): List<GroupAgentRecord> = withContext(Dispatchers.IO) {
         val result = ArrayList<GroupAgentRecord>()
         helper.readableDatabase.rawQuery(
-            "SELECT id, session_id, role_id, nickname, identity, created_at " +
+            "SELECT id, session_id, role_id, nickname, identity, created_at, position_key, tokens_used, token_quota " +
                 "FROM group_agents WHERE session_id = ? ORDER BY created_at",
             arrayOf(sessionId.toString()),
         ).use { cursor ->
@@ -619,10 +1095,41 @@ class GroupChatStore internal constructor(private val helper: LyraDatabase) {
                     nickname = cursor.getString(3),
                     identity = cursor.getString(4),
                     createdAt = cursor.getLong(5),
+                    positionKey = if (cursor.isNull(6)) null else cursor.getString(6),
+                    tokensUsed = cursor.getLong(7),
+                    quotaTokens = cursor.getLong(8),
                 )
             }
         }
         result
+    }
+
+    /** 给成员绑定/改绑职位（决定接力顺序）。 */
+    /** 累加某成员的 token 消耗（预算切片用）。 */
+    suspend fun addAgentTokens(agentId: Long, delta: Long) = withContext(Dispatchers.IO) {
+        if (delta <= 0) return@withContext
+        helper.writableDatabase.execSQL(
+            "UPDATE group_agents SET tokens_used = tokens_used + ? WHERE id = ?",
+            arrayOf(delta, agentId),
+        )
+    }
+
+    suspend fun setAgentQuota(agentId: Long, tokens: Long): Boolean = withContext(Dispatchers.IO) {
+        helper.writableDatabase.update(
+            "group_agents",
+            ContentValues().apply { put("token_quota", tokens) },
+            "id = ?",
+            arrayOf(agentId.toString()),
+        ) > 0
+    }
+
+    suspend fun setAgentPosition(agentId: Long, positionKey: String?): Boolean = withContext(Dispatchers.IO) {
+        helper.writableDatabase.update(
+            "group_agents",
+            ContentValues().apply { put("position_key", positionKey) },
+            "id = ?",
+            arrayOf(agentId.toString()),
+        ) > 0
     }
 
     suspend fun addAgent(
@@ -630,6 +1137,7 @@ class GroupChatStore internal constructor(private val helper: LyraDatabase) {
         roleId: Long?,
         nickname: String,
         identity: String,
+        positionKey: String? = null,
     ): Long = withContext(Dispatchers.IO) {
         helper.writableDatabase.insertOrThrow(
             "group_agents",
@@ -639,6 +1147,7 @@ class GroupChatStore internal constructor(private val helper: LyraDatabase) {
                 put("role_id", roleId)
                 put("nickname", nickname.trim())
                 put("identity", identity.trim())
+                put("position_key", positionKey)
                 put("created_at", System.currentTimeMillis())
             },
         )

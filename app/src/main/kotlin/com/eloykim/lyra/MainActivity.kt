@@ -147,6 +147,18 @@ class MainActivity : ComponentActivity() {
         DebugLaunch.screen.value = intent?.getStringExtra("screen")
         DebugLaunch.task.value = extra
         intent?.getStringExtra("asr_wav")?.let { path -> runAsrDebug(path) }
+        intent?.getStringExtra("gsend")?.let { text ->
+            Thread {
+                runCatching { Thread.sleep(1_000) }
+                runCatching {
+                    kotlinx.coroutines.runBlocking {
+                        val sid = AppGraph.history.groupChat.latestSession()?.id ?: return@runBlocking
+                        val added = com.eloykim.lyra.group.GroupOrchestrator.send(sid, text)
+                        Log.i("GroupDebug", "gsend added=$added text=$text")
+                    }
+                }.onFailure { Log.e("GroupDebug", "gsend failed", it) }
+            }.start()
+        }
         runServiceDebug(intent)
         runCommandDebug(intent)
     }
@@ -157,6 +169,7 @@ class MainActivity : ComponentActivity() {
         val rawArgs = intent.getStringExtra("args") ?: "{}"
         Thread {
             runCatching { Thread.sleep(1_000) }
+
             val result = runCatching {
                 val args = runCatching { org.json.JSONObject(rawArgs) }
                     .getOrDefault(org.json.JSONObject())
@@ -185,8 +198,32 @@ class MainActivity : ComponentActivity() {
         val service = intent?.getStringExtra("service") ?: return
         val action = intent.getStringExtra("action") ?: "list"
         val arg = intent.getStringExtra("arg")
+        if (service == "hub") {
+            Thread {
+                runCatching { Thread.sleep(800) }
+                runCatching {
+                    val hub = com.eloykim.lyra.service.PhoneServices.create(this, AppGraph.history)
+                    val svc = intent.getStringExtra("svc") ?: "groupchat"
+                    // 参数可以从文件读，绕开 adb shell 的引号转义
+                    val rawArgs = intent.getStringExtra("argfile")?.let { path ->
+                        runCatching { java.io.File(path).readText() }.getOrNull()
+                    } ?: intent.getStringExtra("arg") ?: "{}"
+                    val args = runCatching { org.json.JSONObject(rawArgs) }.getOrElse {
+                        Log.e("ServiceDebug", "bad args: $rawArgs", it)
+                        org.json.JSONObject()
+                    }
+                    val r = kotlinx.coroutines.runBlocking { hub.call(svc, action, args) }
+                    Log.i(
+                        "ServiceDebug",
+                        "hub=$svc.$action ok=${r.ok} code=${r.code} message=${r.message} data=${r.data}",
+                    )
+                }
+            }.start()
+            return
+        }
         Thread {
             runCatching { Thread.sleep(1_000) }
+
             val result = runCatching {
                 kotlinx.coroutines.runBlocking {
                     when (service) {

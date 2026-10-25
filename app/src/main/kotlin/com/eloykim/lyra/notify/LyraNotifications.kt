@@ -12,27 +12,12 @@ import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 
 /**
- * 系统通知服务：按 AMP §5.5 的打断级别分渠道推送。
+ * 通知投递的薄封装；级别定义归服务目录（[com.eloykim.lyra.service.notification.NoticeLevel]）。
  *
  * 级别与渠道一一对应，用户可以在系统设置里单独关掉「好奇」而保留「安全」——
  * 这比一个 total switch 更符合 AMP 的注意力预算思路。
  */
-enum class NoticeLevel(val channelId: String, val importance: Int, val title: String) {
-    /** P0 安全：伤害、数据泄露、不可逆破坏。 */
-    SAFETY("lyra_safety", NotificationManager.IMPORTANCE_HIGH, "安全提醒"),
-
-    /** P1 承诺：需要用户裁决，否则任务停在这里。 */
-    COMMITMENT("lyra_commitment", NotificationManager.IMPORTANCE_HIGH, "需要你的确认"),
-
-    /** P2 机会：有结果或分叉点，可以稍后处理。 */
-    OPPORTUNITY("lyra_opportunity", NotificationManager.IMPORTANCE_DEFAULT, "任务进展"),
-
-    /** P3 好奇：锦上添花，不打扰。 */
-    CURIOSITY("lyra_curiosity", NotificationManager.IMPORTANCE_LOW, "顺便一提"),
-
-    /** P4 静默：只进通知栏，不出声、不弹。 */
-    SILENT("lyra_silent", NotificationManager.IMPORTANCE_MIN, "记录"),
-}
+typealias NoticeLevel = com.eloykim.lyra.service.notification.NoticeLevel
 
 object LyraNotifications {
 

@@ -20,7 +20,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -67,14 +69,15 @@ fun UsageScreen(onBack: () -> Unit) {
     var snapshot by remember { mutableStateOf<UsageService.Snapshot?>(null) }
     var cloudUsage by remember { mutableStateOf<UsageService.CloudUsage?>(null) }
     var cloudLoading by remember { mutableStateOf(false) }
+    var days by remember { mutableStateOf(7) }
     val scope = rememberCoroutineScope()
     var reload by remember { mutableStateOf(0) }
     val timeFormat = remember { SimpleDateFormat("MM-dd HH:mm", Locale.getDefault()) }
 
-    LaunchedEffect(reload) {
+    LaunchedEffect(reload, days) {
         val service = AppGraph.commands.hub.service("usage") as? UsageService
         snapshot = service?.let { usage ->
-            runCatching { usage.snapshot(days = 7, recentLimit = 20) }.getOrNull()
+            runCatching { usage.snapshot(days = days, recentLimit = 20) }.getOrNull()
         }
         cloudLoading = true
         cloudUsage = runCatching { service?.cloudUsage(force = false) }.getOrNull()
@@ -127,12 +130,34 @@ fun UsageScreen(onBack: () -> Unit) {
                         .padding(horizontal = 20.dp),
                 ) {
                     Spacer(Modifier.height(8.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = days == 7,
+                            onClick = { days = 7 },
+                            label = { Text("近 7 天") },
+                        )
+                        FilterChip(
+                            selected = days == 30,
+                            onClick = { days = 30 },
+                            label = { Text("近 30 天") },
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
                     val chat = snapshot?.chat ?: ChatUsageSummary()
                     val group = snapshot?.group ?: ChatUsageSummary()
-                    UsageHero(data, snapshot?.pricing, chat, group)
+                    UsageHero(data, snapshot?.pricing, chat, group, days)
 
                     Spacer(Modifier.height(20.dp))
                     UsageStats(data, chat, group)
+
+                    Spacer(Modifier.height(20.dp))
+                    UsageSourceCard(data, chat, group)
+
+                    val providers = snapshot?.providers.orEmpty()
+                    if (providers.isNotEmpty()) {
+                        Spacer(Modifier.height(20.dp))
+                        UsageProviderCard(providers)
+                    }
 
                     Spacer(Modifier.height(20.dp))
                     UsageCloudCard(
@@ -157,7 +182,7 @@ fun UsageScreen(onBack: () -> Unit) {
                     Spacer(Modifier.height(24.dp))
                     val peak = data.byDay.maxOfOrNull { it.tokens } ?: 0L
                     SectionTitle(
-                        "近 7 天",
+                        "近 $days 天",
                         if (peak > 0L) "峰值 ${formatTokens(peak)}" else "token / 天",
                     )
                     Spacer(Modifier.height(10.dp))
@@ -189,6 +214,116 @@ fun UsageScreen(onBack: () -> Unit) {
                     )
                     Spacer(Modifier.height(32.dp))
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UsageSourceCard(
+    report: UsageReport,
+    chat: ChatUsageSummary,
+    group: ChatUsageSummary,
+) {
+    val totalTokens = report.tokens + chat.totalTokens + group.totalTokens
+    val totalCost = report.costMicros + chat.costMicros + group.costMicros
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("来源分布", style = MaterialTheme.typography.titleSmall)
+                Spacer(Modifier.weight(1f))
+                Text(
+                    "${formatTokens(totalTokens)} · ${formatCost(totalCost)}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Spacer(Modifier.height(10.dp))
+            SourceLine(
+                label = "Agent",
+                tokens = report.tokens,
+                costMicros = report.costMicros,
+                totalTokens = totalTokens,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(10.dp))
+            SourceLine(
+                label = "1:1 聊天",
+                tokens = chat.totalTokens,
+                costMicros = chat.costMicros,
+                totalTokens = totalTokens,
+                color = MaterialTheme.colorScheme.tertiary,
+            )
+            Spacer(Modifier.height(10.dp))
+            SourceLine(
+                label = "群聊",
+                tokens = group.totalTokens,
+                costMicros = group.costMicros,
+                totalTokens = totalTokens,
+                color = MaterialTheme.colorScheme.secondary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun SourceLine(
+    label: String,
+    tokens: Long,
+    costMicros: Long,
+    totalTokens: Long,
+    color: androidx.compose.ui.graphics.Color,
+) {
+    val fraction = if (totalTokens <= 0) 0f else (tokens.toFloat() / totalTokens).coerceIn(0f, 1f)
+    Column {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(label, style = MaterialTheme.typography.bodySmall)
+            Spacer(Modifier.weight(1f))
+            Text(
+                "${formatTokens(tokens)} · ${formatCost(costMicros)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.height(4.dp))
+        LinearProgressIndicator(
+            progress = { fraction },
+            color = color,
+            trackColor = MaterialTheme.colorScheme.surfaceContainerHighest,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(5.dp)
+                .clip(CircleShape),
+        )
+    }
+}
+
+@Composable
+private fun UsageProviderCard(
+    providers: List<com.eloykim.lyra.data.UsageProviderSummary>,
+) {
+    val total = providers.sumOf { it.totalTokens }
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text("品牌分布", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.height(10.dp))
+            providers.take(8).forEachIndexed { index, provider ->
+                if (index > 0) Spacer(Modifier.height(8.dp))
+                SourceLine(
+                    label = "${provider.providerId} · ${provider.model}",
+                    tokens = provider.totalTokens,
+                    costMicros = provider.costMicros,
+                    totalTokens = total,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
         }
     }
@@ -262,6 +397,12 @@ private fun UsageCloudCard(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
+            current.balanceLabel?.let {
+                Text(
+                    "云端余额 $it",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+            }
             if (current.requests != null || current.requestLimit != null) {
                 Text(
                     "请求 ${current.requests ?: "—"} / 限额 ${current.requestLimit ?: "—"}",
@@ -299,6 +440,7 @@ private fun UsageHero(
     pricing: UsageService.Pricing?,
     chat: ChatUsageSummary,
     group: ChatUsageSummary,
+    days: Int,
 ) {
     val tokensIn = report.tokensIn + chat.inputTokens + group.inputTokens
     val tokensOut = report.tokensOut + chat.outputTokens + group.outputTokens
@@ -358,6 +500,13 @@ private fun UsageHero(
                     "$calls 次调用",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.82f),
+            )
+            Spacer(Modifier.height(3.dp))
+            Text(
+                text = "本地全量 · 近 $days 天 · Agent ${formatTokens(report.tokens)} · " +
+                    "聊天 ${formatTokens(chat.totalTokens)} · 群聊 ${formatTokens(group.totalTokens)}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f),
             )
             if (chat.calls > 0) {
                 Spacer(Modifier.height(3.dp))

@@ -67,6 +67,7 @@ object AppGraph {
                 appScope.launch(Dispatchers.IO) {
                     repository.markInterrupted()
                     // 启动时压缩前缀：超过阈值才做，避免每次启动都读写全表
+                    runCatching { com.eloykim.lyra.group.GroupOrchestrator.migrateExisting() }
                     runCatching {
                         val forced = DebugLaunch.compactKeep
                         if (forced > 0) {

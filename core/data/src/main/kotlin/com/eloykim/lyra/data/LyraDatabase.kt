@@ -32,6 +32,148 @@ internal class LyraDatabase(context: Context) : SQLiteOpenHelper(context, NAME, 
     }
 
     override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        // v33：入职申请——部长提议，财务/资源审批，人力部创建。
+        if (oldVersion < 33) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS group_staffing(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL,
+                    position_key TEXT NOT NULL,
+                    nickname TEXT NOT NULL,
+                    requested_by INTEGER,
+                    state TEXT NOT NULL,
+                    finance_ok INTEGER NOT NULL DEFAULT 0,
+                    resource_ok INTEGER NOT NULL DEFAULT 0,
+                    hr_ok INTEGER NOT NULL DEFAULT 0,
+                    agent_id INTEGER,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                )
+                """.trimIndent(),
+            )
+        }
+        // v32：成员单独预算额度（0 表示按均分份额）。
+        if (oldVersion < 32) {
+            db.execSQL("ALTER TABLE group_agents ADD COLUMN token_quota INTEGER NOT NULL DEFAULT 0")
+        }
+        // v31：成员 token 消耗（预算切片用）。
+        if (oldVersion < 31) {
+            db.execSQL("ALTER TABLE group_agents ADD COLUMN tokens_used INTEGER NOT NULL DEFAULT 0")
+        }
+        // v30：任务记录派活时的团队摘要，用于检测"派活后团队变了"。
+        if (oldVersion < 30) {
+            db.execSQL("ALTER TABLE group_tasks ADD COLUMN manifest_digest TEXT")
+        }
+        // v29：团队清单快照（成员 + 职位 + 座位），用于检测"目录过期"。
+        if (oldVersion < 29) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS group_manifests(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL,
+                    digest TEXT NOT NULL,
+                    payload TEXT NOT NULL,
+                    created_at INTEGER NOT NULL
+                )
+                """.trimIndent(),
+            )
+        }
+        // v28：成员绑定职位（决定接力发言顺序）。
+        if (oldVersion < 28) {
+            db.execSQL("ALTER TABLE group_agents ADD COLUMN position_key TEXT")
+        }
+        // v27：反对票计数（虚假共识检测）。
+        if (oldVersion < 27) {
+            db.execSQL("ALTER TABLE group_tasks ADD COLUMN dissent_count INTEGER NOT NULL DEFAULT 0")
+        }
+        // v26：未知（blocking 的必须显式，回答后解除）。
+        if (oldVersion < 26) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS group_unknowns(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL,
+                    question TEXT NOT NULL,
+                    blocking INTEGER NOT NULL,
+                    resolved INTEGER NOT NULL DEFAULT 0,
+                    raised_by INTEGER,
+                    created_at INTEGER NOT NULL,
+                    resolved_at INTEGER
+                )
+                """.trimIndent(),
+            )
+        }
+        // v25：承诺记录（posted / grounded / discharged / breached）。
+        if (oldVersion < 25) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS group_commitments(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL,
+                    from_agent INTEGER NOT NULL,
+                    to_agent INTEGER NOT NULL,
+                    proposition TEXT NOT NULL,
+                    satisfaction TEXT NOT NULL,
+                    state TEXT NOT NULL,
+                    due_at INTEGER,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                )
+                """.trimIndent(),
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_commitments_session ON group_commitments(session_id, state)")
+        }
+        // v24：任务板——群聊的共享状态（负责人/状态/依赖/凭据等级）。
+        if (oldVersion < 24) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS group_tasks(
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id INTEGER NOT NULL,
+                    title TEXT NOT NULL,
+                    owner_agent_id INTEGER,
+                    state TEXT NOT NULL,
+                    depends_on INTEGER,
+                    due_at INTEGER,
+                    warrant_tier TEXT,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL
+                )
+                """.trimIndent(),
+            )
+            db.execSQL("CREATE INDEX IF NOT EXISTS idx_group_tasks_session ON group_tasks(session_id, state)")
+        }
+        // v23：职务表——职务是数据，不是枚举；默认四席由代码种子写入。
+        if (oldVersion < 23) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS group_positions(
+                    session_id INTEGER NOT NULL,
+                    key TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    capabilities TEXT NOT NULL,
+                    system INTEGER NOT NULL,
+                    sort_order INTEGER NOT NULL,
+                    PRIMARY KEY(session_id, key)
+                )
+                """.trimIndent(),
+            )
+        }
+        // v22：核心座位持久化（总经理/财务/记录者），存量群聊按新模型重建。
+        if (oldVersion < 22) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS group_seats(
+                    session_id INTEGER NOT NULL,
+                    seat TEXT NOT NULL,
+                    agent_id INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY(session_id, seat)
+                )
+                """.trimIndent(),
+            )
+        }
         if (oldVersion < 2) {
             createV2(db)
         }
@@ -56,6 +198,20 @@ internal class LyraDatabase(context: Context) : SQLiteOpenHelper(context, NAME, 
         if (oldVersion < 7) {
             db.execSQL("DROP TRIGGER IF EXISTS amp_events_no_delete")
             createCompactionPolicy(db)
+        }
+        // v11：核心座位持久化（总经理/财务/记录者），存量群聊按新模型重建。
+        if (oldVersion < 11) {
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS group_seats(
+                    session_id INTEGER NOT NULL,
+                    seat TEXT NOT NULL,
+                    agent_id INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    PRIMARY KEY(session_id, seat)
+                )
+                """.trimIndent(),
+            )
         }
         // v10：帧上记录僵局状态。
         if (oldVersion < 10) {
@@ -652,6 +808,6 @@ internal class LyraDatabase(context: Context) : SQLiteOpenHelper(context, NAME, 
     }
     companion object {
         const val NAME = "lyra_history.db"
-        const val VERSION = 21
+        const val VERSION = 33
     }
 }

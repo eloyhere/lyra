@@ -9,7 +9,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.RemoteInput
 import com.eloykim.lyra.notify.LyraNotifications
-import com.eloykim.lyra.notify.NoticeLevel
+import com.eloykim.lyra.service.notification.NoticeLevel
 import com.eloykim.lyra.service.BasePhoneService
 import com.eloykim.lyra.service.Schema
 import com.eloykim.lyra.service.ServiceMethod

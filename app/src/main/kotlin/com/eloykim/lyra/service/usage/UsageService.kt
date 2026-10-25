@@ -3,6 +3,7 @@ package com.eloykim.lyra.service.usage
 import com.eloykim.lyra.data.ChatUsageSummary
 import com.eloykim.lyra.data.HistoryRepository
 import com.eloykim.lyra.data.UsageDay
+import com.eloykim.lyra.data.UsageProviderSummary
 import com.eloykim.lyra.data.UsageReceipt
 import com.eloykim.lyra.data.UsageReport
 import com.eloykim.lyra.data.UsageSlice
@@ -49,6 +50,7 @@ class UsageService(private val history: HistoryRepository) : BasePhoneService() 
         val pricing: Pricing?,
         val chat: ChatUsageSummary = ChatUsageSummary(),
         val group: ChatUsageSummary = ChatUsageSummary(),
+        val providers: List<UsageProviderSummary> = emptyList(),
     )
 
     /** 云端账单/用量接口的返回；字段可能缺失。 */
@@ -59,6 +61,7 @@ class UsageService(private val history: HistoryRepository) : BasePhoneService() 
         val tokensOut: Long? = null,
         val costMicros: Long? = null,
         val balanceMicros: Long? = null,
+        val balanceLabel: String? = null,
         val requests: Long? = null,
         val requestLimit: Long? = null,
         val cached: Boolean = false,
@@ -240,15 +243,41 @@ class UsageService(private val history: HistoryRepository) : BasePhoneService() 
         }
 
         val settings = SettingsStore.state.value
-        val url = settings.cloudUsageUrl.trim()
+        var url = settings.cloudUsageUrl.trim()
         if (url.isEmpty()) {
-            return CloudUsage(
-                providerId = settings.brandId,
-                source = "未配置",
-                error = "请先在设置里填写云端用量 API 地址",
-            ).also { cloudCache = CachedCloud(now, it) }
+            val catalog = runCatching { history.catalog() }.getOrDefault(emptyList())
+            val baseUrl = catalog.firstOrNull { it.provider.id == settings.brandId }
+                ?.provider?.baseUrl?.trimEnd('/')
+                .orEmpty()
+            url = when (settings.brandId) {
+                "openai" -> {
+                    val format = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
+                    val end = System.currentTimeMillis()
+                    val start = end - 7 * 86_400_000L
+                    "$baseUrl/dashboard/billing/usage?start_date=${format.format(java.util.Date(start))}" +
+                        "&end_date=${format.format(java.util.Date(end))}"
+                }
+
+                "openrouter" -> "https://openrouter.ai/api/v1/credits"
+                "deepseek" -> "$baseUrl/user/balance"
+                else -> ""
+            }
+            if (url.isEmpty()) {
+                return CloudUsage(
+                    providerId = settings.brandId,
+                    source = "未配置",
+                    error = "当前品牌没有内置云端用量接口，请在设置里填写 API 地址",
+                ).also { cloudCache = CachedCloud(now, it) }
+            }
         }
         val key = SettingsStore.cloudUsageKey()
+        if (key.isNullOrBlank()) {
+            return CloudUsage(
+                providerId = settings.brandId,
+                source = url,
+                error = "请先配置独立的云端查询 Key",
+            ).also { cloudCache = CachedCloud(now, it) }
+        }
         val headers = buildMap {
             put("Accept", "application/json")
             if (!key.isNullOrBlank()) put("Authorization", "Bearer $key")
@@ -284,6 +313,32 @@ class UsageService(private val history: HistoryRepository) : BasePhoneService() 
 
     private fun parseCloudUsage(providerId: String, source: String, text: String): CloudUsage {
         val root = JSONObject(text)
+        if (providerId == "deepseek") {
+            val infos = root.optJSONArray("balance_infos")
+            val first = infos?.optJSONObject(0)
+            val balance = first?.optString("total_balance")
+            if (!balance.isNullOrBlank()) {
+                val currency = first?.optString("currency").orEmpty()
+                return CloudUsage(
+                    providerId = providerId,
+                    source = source,
+                    balanceLabel = "$balance $currency".trim(),
+                )
+            }
+        }
+        if (providerId == "openrouter") {
+            val data = root.optJSONObject("data") ?: root
+            val credits = data.optDouble("total_credits", 0.0)
+            val used = data.optDouble("total_usage", 0.0)
+            if (credits > 0 || used > 0) {
+                return CloudUsage(
+                    providerId = providerId,
+                    source = source,
+                    costMicros = (used * 1_000_000).toLong(),
+                    balanceMicros = ((credits - used).coerceAtLeast(0.0) * 1_000_000).toLong(),
+                )
+            }
+        }
         fun firstLong(vararg keys: String): Long? {
             keys.forEach { key ->
                 if (root.has(key) && !root.isNull(key)) {
@@ -349,6 +404,7 @@ class UsageService(private val history: HistoryRepository) : BasePhoneService() 
         .put("tokens", tokens)
         .put("costMicros", costMicros)
         .put("balanceMicros", balanceMicros)
+        .put("balanceLabel", balanceLabel)
         .put("requests", requests)
         .put("requestLimit", requestLimit)
         .put("cached", cached)
@@ -365,11 +421,28 @@ class UsageService(private val history: HistoryRepository) : BasePhoneService() 
             .getOrDefault(ChatUsageSummary())
         val group = runCatching { history.groupChat.usageSummary(days) }
             .getOrDefault(ChatUsageSummary())
+        val providerRows = runCatching { history.chatUsage.byProvider(days) }
+            .getOrDefault(emptyList()) +
+            runCatching { history.groupChat.usageByProvider(days) }.getOrDefault(emptyList())
+        val providers = providerRows
+            .groupBy { it.providerId to it.model }
+            .map { (key, rows) ->
+                UsageProviderSummary(
+                    providerId = key.first,
+                    model = key.second,
+                    inputTokens = rows.sumOf { it.inputTokens },
+                    outputTokens = rows.sumOf { it.outputTokens },
+                    costMicros = rows.sumOf { it.costMicros },
+                    calls = rows.sumOf { it.calls },
+                )
+            }
+            .sortedByDescending { it.totalTokens }
         return Snapshot(
             report = if (pricing != null) raw.repriced(pricing) else raw,
             pricing = pricing,
             chat = chat,
             group = group,
+            providers = providers,
         )
     }
 

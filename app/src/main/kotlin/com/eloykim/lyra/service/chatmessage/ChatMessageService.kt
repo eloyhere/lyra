@@ -296,9 +296,9 @@ class ChatMessageService(private val chat: ChatMessageStore) : BasePhoneService(
             }
             val condensed = ChatCondenser.condense(
                 turns = turns,
-                keepRecent = 12,
-                maxTurns = 40,
-                maxChars = 6_000,
+                keepRecent = com.eloykim.lyra.chat.ChatContextPolicy.KEEP_RECENT,
+                maxTurns = com.eloykim.lyra.chat.ChatContextPolicy.MAX_TURNS,
+                maxChars = com.eloykim.lyra.chat.ChatContextPolicy.MAX_CHARS,
             )
             val keptIds = condensed.turns.map { it.id }.toSet()
             val visible = messages.filter { it.optLong("id") in keptIds }

@@ -44,6 +44,20 @@ enum class ThinkingLevel(val wireValue: String) {
 interface LlmClient {
     val model: String
     suspend fun complete(messages: List<LlmMessage>, tools: List<LlmTool> = emptyList()): LlmResult
+
+    /**
+     * 流式生成：每段文本通过 [onDelta] 回调（正文, 思维链）。
+     * 默认实现不支持流式，退化为整段生成后一次性回调。
+     */
+    suspend fun stream(
+        messages: List<LlmMessage>,
+        tools: List<LlmTool> = emptyList(),
+        onDelta: (String, String?) -> Unit,
+    ): LlmResult {
+        val result = complete(messages, tools)
+        result.text?.let { onDelta(it, result.reasoning) }
+        return result
+    }
 }
 
 /** 按服务商选择协议实现；默认走 OpenAI 兼容。 */
@@ -97,6 +111,97 @@ class OpenAiCompatibleClient(
     private val transport: HttpTransport,
 ) : LlmClient {
 
+    override suspend fun stream(
+        messages: List<LlmMessage>,
+        tools: List<LlmTool>,
+        onDelta: (String, String?) -> Unit,
+    ): LlmResult {
+        val payload = JSONObject().apply {
+            put("model", model)
+            if (thinking == ThinkingLevel.Off) put("temperature", 0.2)
+            put(
+                "messages",
+                org.json.JSONArray(messages.map {
+                    JSONObject().put("role", it.role).put("content", it.content)
+                }),
+            )
+            if (tools.isNotEmpty()) {
+                put(
+                    "tools",
+                    org.json.JSONArray(tools.map { tool ->
+                        JSONObject()
+                            .put("type", "function")
+                            .put(
+                                "function",
+                                JSONObject()
+                                    .put("name", tool.name)
+                                    .put("description", tool.description)
+                                    .put("parameters", JSONObject(tool.parametersJson)),
+                            )
+                    }),
+                )
+                put("tool_choice", "auto")
+            }
+            applyThinking(this)
+            put("stream", true)
+        }
+        val text = StringBuilder()
+        val reasoning = StringBuilder()
+        val calls = LinkedHashMap<Int, StringBuilder>()
+        val callIds = LinkedHashMap<Int, String>()
+        val callNames = LinkedHashMap<Int, String>()
+        transport.postStream(
+            url = "$baseUrl/chat/completions",
+            headers = mapOf(
+                "Authorization" to "Bearer $apiKey",
+                "Content-Type" to "application/json",
+            ),
+            body = payload.toString(),
+        ) { line ->
+            if (!line.startsWith("data:")) return@postStream
+            val data = line.removePrefix("data:").trim()
+            if (data.isEmpty() || data == "[DONE]") return@postStream
+            runCatching {
+                val json = JSONObject(data)
+                val delta = json.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("delta")
+                val piece = delta?.optString("content").orEmpty()
+                val think = delta?.optString("reasoning_content").orEmpty()
+                if (think.isNotEmpty()) {
+                    reasoning.append(think)
+                    onDelta("", think)
+                }
+                if (piece.isNotEmpty()) {
+                    text.append(piece)
+                    onDelta(piece, null)
+                }
+                delta?.optJSONArray("tool_calls")?.let { array ->
+                    for (index in 0 until array.length()) {
+                        val item = array.optJSONObject(index) ?: continue
+                        val slot = item.optInt("index", index)
+                        item.optString("id").takeIf { it.isNotBlank() }?.let { callIds[slot] = it }
+                        item.optJSONObject("function")?.let { function ->
+                            function.optString("name").takeIf { it.isNotBlank() }?.let { callNames[slot] = it }
+                            function.optString("arguments").takeIf { it.isNotEmpty() }?.let {
+                                calls.getOrPut(slot) { StringBuilder() }.append(it)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        return LlmResult(
+            text = text.toString().takeIf { it.isNotBlank() },
+            toolCalls = calls.map { (slot, args) ->
+                LlmToolCall(
+                    id = callIds[slot] ?: "call_$slot",
+                    name = callNames[slot] ?: "lyra_service",
+                    argumentsJson = args.toString().ifBlank { "{}" },
+                )
+            },
+            usage = LlmUsage(),
+            reasoning = reasoning.toString().takeIf { it.isNotBlank() },
+        )
+    }
     override suspend fun complete(messages: List<LlmMessage>, tools: List<LlmTool>): LlmResult {
         val payload = JSONObject().apply {
             put("model", model)

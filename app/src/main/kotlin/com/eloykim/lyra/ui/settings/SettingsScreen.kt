@@ -123,6 +123,12 @@ fun SettingsScreen(onBack: () -> Unit) {
     var showColorThemeDialog by remember { mutableStateOf(false) }
     var showTranslateDialog by remember { mutableStateOf(false) }
     var showLedger by remember { mutableStateOf(false) }
+    var showGroupRole by remember { mutableStateOf(false) }
+    var groupSessionId by remember { mutableStateOf(0L) }
+    var groupScenarioId by remember { mutableStateOf<Long?>(null) }
+    var groupRoleId by remember { mutableStateOf<Long?>(null) }
+    var groupScenarios by remember { mutableStateOf<List<com.eloykim.lyra.data.GroupScenarioRecord>>(emptyList()) }
+    var groupRoles by remember { mutableStateOf<List<com.eloykim.lyra.data.GroupRoleRecord>>(emptyList()) }
     var ledgerLines by remember { mutableStateOf<List<String>>(emptyList()) }
     var ledgerStatus by remember { mutableStateOf("") }
     var metricsText by remember { mutableStateOf("") }
@@ -395,6 +401,44 @@ fun SettingsScreen(onBack: () -> Unit) {
                 TextButton(onClick = { showOfflineAsrDialog = false }) {
                     Text(stringResource(R.string.action_close))
                 }
+            },
+        )
+    }
+
+    if (showGroupRole) {
+        AlertDialog(
+            onDismissRequest = { showGroupRole = false },
+            title = { Text("群聊角色") },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    Text("场景", style = MaterialTheme.typography.labelLarge)
+                    groupScenarios.forEach { scenario ->
+                        TextButton(onClick = {
+                            groupScenarioId = scenario.id
+                            groupRoleId = null
+                        }) {
+                            Text((if (groupScenarioId == scenario.id) "✓ " else "") + scenario.name)
+                        }
+                    }
+                    Text("角色", style = MaterialTheme.typography.labelLarge)
+                    groupRoles.filter { it.scenarioId == groupScenarioId }.forEach { role ->
+                        TextButton(onClick = {
+                            scope.launch {
+                                AppGraph.history.groupChat.setSessionScenario(
+                                    id = groupSessionId,
+                                    scenarioId = groupScenarioId,
+                                    roleId = role.id,
+                                )
+                                groupRoleId = role.id
+                            }
+                        }) {
+                            Text((if (groupRoleId == role.id) "✓ " else "") + "${role.name} · ${role.model}")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showGroupRole = false }) { Text("完成") }
             },
         )
     }
@@ -884,6 +928,21 @@ fun SettingsScreen(onBack: () -> Unit) {
                         },
                     )
                     HorizontalDivider(Modifier.padding(horizontal = 20.dp))
+                    SettingsRow(
+                        title = "群聊角色",
+                        subtitle = "选择场景与角色；成员由总经理增减",
+                        onClick = {
+                            showGroupRole = true
+                            scope.launch {
+                                val session = AppGraph.history.groupChat.latestSession()
+                                groupSessionId = session?.id ?: 0L
+                                groupScenarioId = session?.scenarioId
+                                groupRoleId = session?.roleId
+                                groupScenarios = AppGraph.history.groupChat.scenarios()
+                                groupRoles = AppGraph.history.groupChat.roles()
+                            }
+                        },
+                    )
                     SettingsRow(
                         title = stringResource(R.string.row_history),
                         subtitle = "$historyText · 点击清空",

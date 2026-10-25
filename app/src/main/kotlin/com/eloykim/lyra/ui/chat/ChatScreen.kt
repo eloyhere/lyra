@@ -361,6 +361,25 @@ fun ChatScreen(
             )
         }
     }
+
+    deleteConversationTarget?.let { target ->
+        AlertDialog(
+            onDismissRequest = { deleteConversationTarget = null },
+            title = { Text("删除会话") },
+            text = { Text("删除「${target.title}」及其全部消息？") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        ChatStore.deleteConversation(target.id)
+                        deleteConversationTarget = null
+                    },
+                ) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteConversationTarget = null }) { Text("取消") }
+            },
+        )
+    }
 }
 
 @Composable
