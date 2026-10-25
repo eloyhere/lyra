@@ -93,6 +93,7 @@ fun GroupChatScreen(onBack: () -> Unit) {
         var typingAgentId by remember { mutableStateOf<Long?>(null) }
         var streamingText by remember { mutableStateOf("") }
         var streamingReason by remember { mutableStateOf("") }
+        var pendingUserText by remember { mutableStateOf("") }
 
     var groupTasks by remember { mutableStateOf<List<com.eloykim.lyra.data.GroupTaskRecord>>(emptyList()) }
     val refreshTasks: suspend () -> Unit = {
@@ -119,7 +120,7 @@ fun GroupChatScreen(onBack: () -> Unit) {
     var showRoleDialog by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val sending by GroupChatController.sending.collectAsStateWithLifecycle()
-    val chatStyle = rememberChatStyle()
+    val chatStyle = rememberGroupChatStyle()
 
     suspend fun reload() {
         snapshot = session?.snapshot()
@@ -167,6 +168,32 @@ fun GroupChatScreen(onBack: () -> Unit) {
             val store = AppGraph.history.groupChat
             val created = store.createSession("群聊 ${sessions.size + 1}")
             sessions = store.sessions()
+            // 建群即招募：拉起全部部长
+            val roles = store.roles()
+            val defaultRole = roles.firstOrNull()
+            if (defaultRole != null) {
+                val ministers = listOf(
+                    "产品部长" to "PRODUCT_MINISTER",
+                    "工程部长" to "ENGINEERING_MINISTER",
+                    "运营部长" to "OPERATIONS_MINISTER",
+                    "职能部长" to "STAFF_MINISTER",
+                    "法务部长" to "LEGAL_MINISTER",
+                    "人力部长" to "HR_MINISTER",
+                    "财务部长" to "FINANCE_MINISTER",
+                    "资源部长" to "RESOURCE_MINISTER",
+                )
+                ministers.forEach { (title, key) ->
+                    runCatching {
+                        store.addAgent(
+                            sessionId = created.id,
+                            roleId = defaultRole.id,
+                            nickname = title,
+                            identity = "",
+                            positionKey = key,
+                        )
+                    }
+                }
+            }
             session = GroupChatSession(created.id)
             selectedAgents = emptySet()
             quoted = null
@@ -208,12 +235,67 @@ fun GroupChatScreen(onBack: () -> Unit) {
         scope.launch {
             try {
                 error = null
+                // 1) 用户消息先落库 2) 立刻刷新上屏 3) 再发起网络请求
+                runCatching {
+                    com.eloykim.lyra.AppGraph.history.groupChat.addMessage(
+                        sessionId = currentData.session.id,
+                        role = "user",
+                        authorId = null,
+                        authorName = "你",
+                        content = content,
+                        mentions = "",
+                        quotedId = quoteSnapshot?.id,
+                        quotedAuthor = quoteSnapshot?.authorName,
+                        quotedContent = quoteSnapshot?.content,
+                    )
+                }
+                reload()
+                // 空群：启动招募流程，拉起全部部长
+                var roster = currentData.agents
+                if (roster.isEmpty()) {
+                    val defaultRole = currentData.roles.firstOrNull()
+                    if (defaultRole != null) {
+                        val ministers = listOf(
+                            "产品部长" to "PRODUCT_MINISTER",
+                            "工程部长" to "ENGINEERING_MINISTER",
+                            "运营部长" to "OPERATIONS_MINISTER",
+                            "职能部长" to "STAFF_MINISTER",
+                            "法务部长" to "LEGAL_MINISTER",
+                            "人力部长" to "HR_MINISTER",
+                            "财务部长" to "FINANCE_MINISTER",
+                            "资源部长" to "RESOURCE_MINISTER",
+                        )
+                        runCatching {
+                            ministers.forEach { (title, key) ->
+                                com.eloykim.lyra.AppGraph.history.groupChat.addAgent(
+                                    sessionId = currentData.session.id,
+                                    roleId = defaultRole.id,
+                                    nickname = title,
+                                    identity = "",
+                                    positionKey = key,
+                                )
+                            }
+                            com.eloykim.lyra.AppGraph.history.ledger.append(
+                                "group",
+                                "group.recruitment",
+                                org.json.JSONObject()
+                                    .put("sessionId", currentData.session.id)
+                                    .put("count", ministers.size)
+                                    .toString(),
+                            )
+                        }
+                        roster = com.eloykim.lyra.AppGraph.history.groupChat
+                            .agents(currentData.session.id)
+                        reload()
+                    }
+                }
                 val count = GroupChatController.send(
                     session = current,
                     text = content,
-                    agents = currentData.agents,
+                    agents = roster,
                     roles = currentData.roles,
                     quote = quoteSnapshot,
+                    userMessageStored = true,
                     onTyping = { who ->
                         typingAgentId = who
                         if (who != null) {
@@ -226,8 +308,15 @@ fun GroupChatScreen(onBack: () -> Unit) {
                         streamingText += piece
                         if (think != null) streamingReason += think
                     },
+                    onReply = { _, _, _ ->
+                        // 每有一位说完就刷新一次，逐条上屏
+                        scope.launch {
+                            streamingText = ""
+                            streamingReason = ""
+                            reload()
+                        }
+                    },
                 )
-                if (count == 0) error = "这条消息没有 @ 任何 Agent"
                 reload()
             } catch (t: Throwable) {
                 error = t.message ?: "发送失败"
@@ -364,7 +453,7 @@ fun GroupChatScreen(onBack: () -> Unit) {
             )
             HorizontalDivider()
 
-            ChatMessageList(
+            GroupMessageList(
                 messages = data.messages.map { record ->
                     val agent = data.agents.firstOrNull { it.id == record.authorId }
                     val title = agent?.positionKey?.let {
@@ -372,17 +461,28 @@ fun GroupChatScreen(onBack: () -> Unit) {
                     } ?: data.roles.firstOrNull { it.id == agent?.roleId }?.name
                     record.toChatMessage(authorOverride = title)
                 }.let { list ->
+                    // 用户消息先上屏，不等模型
+                    val withUser = if (pendingUserText.isBlank()) {
+                        list
+                    } else {
+                        list + ChatMessage(
+                            id = -2L,
+                            role = ChatRole.User,
+                            content = pendingUserText,
+                            pending = false,
+                        )
+                    }
                     val typing = typingAgentId?.let { id -> data.agents.firstOrNull { it.id == id } }
                     if (typing == null) {
-                        list
+                        withUser
                     } else {
                         val name = typing.positionKey?.let {
                             com.eloykim.lyra.attention.Positions.byKey(it)?.title
                         } ?: typing.nickname
-                        list + ChatMessage(
+                        withUser + ChatMessage(
                             id = -1L,
                             role = ChatRole.Assistant,
-                            content = if (streamingText.isBlank()) "输入中…" else streamingText,
+                            content = if (streamingText.isBlank()) "正在思考…" else streamingText,
                             reasoning = streamingReason.takeIf { it.isNotBlank() },
                             pending = true,
                             authorName = name,
@@ -461,12 +561,6 @@ fun GroupChatScreen(onBack: () -> Unit) {
                         )
                     }
                     Spacer(Modifier.weight(1f))
-                    if (sending) {
-                        CircularProgressIndicator(
-                            Modifier.size(18.dp),
-                            strokeWidth = 2.dp,
-                        )
-                    }
                 }
                 Spacer(Modifier.height(6.dp))
                 OutlinedTextField(

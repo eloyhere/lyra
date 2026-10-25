@@ -124,25 +124,66 @@ object Positions {
     /** 三层视图：董事长 / 各部部长 / 职员。 */
     fun hierarchy(): List<List<Position>> = listOf(top, ministers, staff.filter { it.tier == 3 })
 
-    /** 每个职位一个专属图标，用于头像与标签。 */
-    fun emojiOf(title: String): String = when {
-        title.contains("董事长") -> "👑"
-        title.contains("总经理") -> "🎯"
-        title.contains("产品") -> "🧭"
-        title.contains("工程") || title.contains("技术") -> "⚙️"
-        title.contains("运营") -> "📣"
-        title.contains("法务") -> "⚖️"
-        title.contains("人力") -> "👥"
-        title.contains("财务") -> "💰"
-        title.contains("资源") -> "📦"
-        title.contains("职能") -> "🗂️"
-        title.contains("设计") -> "🎨"
-        title.contains("数据") -> "📊"
-        title.contains("测试") -> "🧪"
-        title.contains("记录") -> "📝"
-        else -> "🙂"
+    /** 每个职位一个专属图标：先精确匹配，再按关键词兜底。 */
+    private val exactEmoji = mapOf(
+        "董事长" to "👑",
+        "总经理" to "🎯",
+        "副总经理" to "🏅",
+        "记录者" to "📝",
+        "工程部长" to "🏗️",
+        "技术负责人" to "🛠️",
+        "产品部长" to "🧭",
+        "产品经理" to "📋",
+        "设计师" to "🎨",
+        "数据分析" to "📊",
+        "用户研究" to "🔍",
+        "运营部长" to "📣",
+        "运营专员" to "📈",
+        "市场专员" to "🤝",
+        "销售" to "💼",
+        "客服" to "🎧",
+        "文案" to "✍️",
+        "法务部长" to "⚖️",
+        "法务" to "📜",
+        "人力部长" to "👔",
+        "人力资源" to "🧑‍💼",
+        "财务部长" to "💰",
+        "财务" to "🧾",
+        "资源部长" to "📦",
+        "采购" to "🛒",
+        "职能部长" to "🗂️",
+        "行政" to "🏢",
+        "后端工程师" to "🗄️",
+        "前端工程师" to "🖥️",
+        "客户端工程师" to "📱",
+        "测试工程师" to "🧪",
+        "运维工程师" to "🔧",
+        "记录" to "📝",
+        "程序员" to "💻",
+        "工程师" to "🛠️",
+    )
+
+    fun emojiOf(title: String): String {
+        exactEmoji[title]?.let { return it }
+        return when {
+            title.contains("董事长") -> "👑"
+            title.contains("总经理") -> "🎯"
+            title.contains("产品") -> "🧭"
+            title.contains("程序") -> "💻"
+            title.contains("工程") || title.contains("技术") -> "🏗️"
+            title.contains("运营") -> "📣"
+            title.contains("法务") -> "⚖️"
+            title.contains("人力") -> "👔"
+            title.contains("财务") -> "💰"
+            title.contains("资源") -> "📦"
+            title.contains("职能") -> "🗂️"
+            title.contains("设计") -> "🎨"
+            title.contains("数据") -> "📊"
+            title.contains("测试") -> "🧪"
+            title.contains("记录") -> "📝"
+            else -> "🙂"
+        }
     }
 
-    fun emojiOfKey(key: String?): String =
-        emojiOf(byKey(key.orEmpty())?.title ?: "")
+    fun emojiOfKey(key: String?): String = emojiOf(byKey(key.orEmpty())?.title ?: "")
 }

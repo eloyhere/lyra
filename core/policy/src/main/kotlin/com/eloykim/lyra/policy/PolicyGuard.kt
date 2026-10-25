@@ -55,6 +55,20 @@ object PolicyGuard {
 
     fun isSelfOperationAllowed(): Boolean = allowSelfOperation
 
+    @Volatile
+    private var systemGrantWindowActive = false
+
+    /** 系统授权窗口/设置页显示期间，无障碍观察与操作全部暂停。 */
+    fun setSystemGrantWindowActive(active: Boolean) {
+        systemGrantWindowActive = active
+    }
+
+    fun isSystemGrantWindowActive(): Boolean = systemGrantWindowActive
+
+    /** 权限控制器、设置、安装器都属于授权/提权窗口。 */
+    fun isSystemGrantPackage(packageName: String): Boolean =
+        packageName in SYSTEM_PACKAGES
+
     /** 系统设置、权限授予、安装器：Agent 一旦能操作这些，就能自我提权。 */
     private val SYSTEM_PACKAGES = setOf(
         "com.android.settings",

@@ -34,9 +34,15 @@ class AutomationService : Service() {
         override fun isReady(): Boolean = engine != null
 
         override fun observe(): String {
+            if (com.eloykim.lyra.policy.PolicyGuard.isSystemGrantWindowActive()) {
+                return errorJson("grant_window", "系统授权窗口期间禁止无障碍读取")
+            }
             val current = engine ?: return errorJson("service_unavailable", "无障碍服务未连接")
             val snapshot = current.observe()
                 ?: return errorJson("no_window", "当前没有可访问的窗口")
+            if (com.eloykim.lyra.policy.PolicyGuard.isSystemGrantPackage(snapshot.packageName)) {
+                return errorJson("grant_window", "系统授权/设置窗口不对 Agent 开放")
+            }
             // Lyra 自身界面永不外发：Agent 不能读设置页、不能读授权弹窗
             if (snapshot.packageName == com.eloykim.lyra.policy.PolicyGuard.SELF_PACKAGE && !com.eloykim.lyra.policy.PolicyGuard.isSelfOperationAllowed()) {
                 return errorJson("self_screen", "Lyra 自身界面不对 Agent 开放")
@@ -117,6 +123,9 @@ class AutomationService : Service() {
         label: String,
         block: (AutomationEngine) -> ActionOutcome,
     ): String {
+        if (com.eloykim.lyra.policy.PolicyGuard.isSystemGrantWindowActive()) {
+            return errorJson("grant_window", "系统授权窗口期间禁止无障碍操作")
+        }
         val current = engine ?: return errorJson("service_unavailable", "无障碍服务未连接")
         val started = System.currentTimeMillis()
         val outcome = block(current)

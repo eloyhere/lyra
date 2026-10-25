@@ -816,6 +816,7 @@ internal object ChatController {
                 "address",
                 "file",
                 "photo",
+                "grant",
             )
         ) {
             return false

@@ -48,6 +48,8 @@ class GroupChatSession(private val sessionId: Long) {
         onTyping: (Long?) -> Unit = {},
         onDelta: (Long, String, String?) -> Unit = { _, _, _ -> },
         onReply: (Long, String, String?) -> Unit = { _, _, _ -> },
+        onUserMessage: () -> Unit = {},
+        userMessageStored: Boolean = false,
     ): Int {
         val content = text.trim()
         if (content.isEmpty() || agents.isEmpty()) return 0
@@ -57,17 +59,20 @@ class GroupChatSession(private val sessionId: Long) {
                 content.contains("@${positionTitleOf(agent, roles)}")
         }
 
-        store.addMessage(
-            sessionId = sessionId,
-            role = "user",
-            authorId = null,
-            authorName = "你",
-            content = content,
-            mentions = mentioned.joinToString(",") { it.nickname },
-            quotedId = quote?.id,
-            quotedAuthor = quote?.authorName,
-            quotedContent = quote?.content,
-        )
+        if (!userMessageStored) {
+            store.addMessage(
+                sessionId = sessionId,
+                role = "user",
+                authorId = null,
+                authorName = "你",
+                content = content,
+                mentions = mentioned.joinToString(",") { it.nickname },
+                quotedId = quote?.id,
+                quotedAuthor = quote?.authorName,
+                quotedContent = quote?.content,
+            )
+            onUserMessage()
+        }
 
         val relay = relayOrder(agents, roles)
         val queue = ArrayDeque<Pair<GroupAgentRecord, Int>>()
@@ -180,6 +185,7 @@ class GroupChatSession(private val sessionId: Long) {
             }
 
             onTyping(agent.id)
+            var deltaCount = 0
             val streamed = StringBuilder()
             val reasoning = StringBuilder()
             var reply = ""
@@ -191,6 +197,7 @@ class GroupChatSession(private val sessionId: Long) {
                     if (think != null) reasoning.append(think)
                     if (piece.isNotEmpty()) {
                         streamed.append(piece)
+                        deltaCount += 1
                         onDelta(agent.id, piece, think)
                     }
                 }
@@ -202,6 +209,7 @@ class GroupChatSession(private val sessionId: Long) {
                 fallback?.reasoning?.let { reasoning.append(it) }
             }
             onTyping(null)
+            android.util.Log.d("GroupDelta", "agent=${agent.id} deltas=$deltaCount chars=${streamed.length}")
             if (reply.isBlank()) reply = streamed.toString()
             reply = stripTitlePrefixes(reply).trim()
             if (reply.isBlank()) continue
@@ -234,11 +242,13 @@ object GroupChatController {
         onTyping: (Long?) -> Unit = {},
         onDelta: (Long, String, String?) -> Unit = { _, _, _ -> },
         onReply: (Long, String, String?) -> Unit = { _, _, _ -> },
+        onUserMessage: () -> Unit = {},
+        userMessageStored: Boolean = false,
     ): Int {
         if (_sending.value) return 0
         _sending.value = true
         return try {
-            session.send(text, agents, roles, quote, onTyping, onDelta, onReply)
+            session.send(text, agents, roles, quote, onTyping, onDelta, onReply, onUserMessage, userMessageStored)
         } finally {
             _sending.value = false
         }

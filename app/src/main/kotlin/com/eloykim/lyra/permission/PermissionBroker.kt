@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Environment
+import com.eloykim.lyra.policy.PolicyGuard
 
 /**
  * 运行时权限申请桥。
@@ -22,6 +23,23 @@ object PermissionBroker {
     @Volatile
     private var host: Host? = null
 
+    @Volatile
+    private var grantDepth: Int = 0
+
+    private fun enterGrantWindow() {
+        synchronized(this) {
+            grantDepth += 1
+            PolicyGuard.setSystemGrantWindowActive(true)
+        }
+    }
+
+    private fun leaveGrantWindow() {
+        synchronized(this) {
+            grantDepth = (grantDepth - 1).coerceAtLeast(0)
+            PolicyGuard.setSystemGrantWindowActive(grantDepth > 0)
+        }
+    }
+
     fun register(value: Host) {
         host = value
     }
@@ -35,15 +53,27 @@ object PermissionBroker {
             context.checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED
         }
         if (missing.isEmpty()) return true
-        val result = host?.requestPermissions(missing) ?: return false
-        return missing.all { result[it] == true }
+        val currentHost = host ?: return false
+        enterGrantWindow()
+        return try {
+            val result = currentHost.requestPermissions(missing)
+            missing.all { result[it] == true }
+        } finally {
+            leaveGrantWindow()
+        }
     }
 
     /** 外部存储写权限：Android 11+ 走「所有文件访问」设置页；旧系统走运行时权限。 */
     suspend fun ensureExternalStorage(context: Context): Boolean {
         if (Build.VERSION.SDK_INT >= 30) {
             if (Environment.isExternalStorageManager()) return true
-            return host?.requestAllFilesAccess() ?: false
+            val currentHost = host ?: return false
+            enterGrantWindow()
+            return try {
+                currentHost.requestAllFilesAccess()
+            } finally {
+                leaveGrantWindow()
+            }
         }
         return ensure(
             context,

@@ -10,6 +10,7 @@ import com.eloykim.lyra.service.calendar.CalendarService
 import com.eloykim.lyra.service.chatmessage.ChatMessageService
 import com.eloykim.lyra.service.chatsession.ChatSessionService
 import com.eloykim.lyra.service.contacts.ContactsService
+import com.eloykim.lyra.service.grant.GrantService
 import com.eloykim.lyra.service.groupchat.GroupChatService
 import com.eloykim.lyra.service.database.DatabaseService
 import com.eloykim.lyra.service.database.ReadOnlyDatabase
@@ -74,6 +75,7 @@ object PhoneServices {
                 ChatMessageService(repository.chatMessages),
                 ChatSessionService(repository),
                 GroupChatService(repository),
+                GrantService(app),
                 AddressService(repository),
                 FileService(app),
                 MediaService(app),

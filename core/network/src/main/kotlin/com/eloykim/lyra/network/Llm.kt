@@ -164,8 +164,13 @@ class OpenAiCompatibleClient(
             runCatching {
                 val json = JSONObject(data)
                 val delta = json.optJSONArray("choices")?.optJSONObject(0)?.optJSONObject("delta")
-                val piece = delta?.optString("content").orEmpty()
-                val think = delta?.optString("reasoning_content").orEmpty()
+                fun textOf(key: String): String {
+                    val d = delta ?: return ""
+                    if (!d.has(key) || d.isNull(key)) return ""
+                    return d.optString(key)
+                }
+                val piece = textOf("content")
+                val think = textOf("reasoning_content")
                 if (think.isNotEmpty()) {
                     reasoning.append(think)
                     onDelta("", think)
