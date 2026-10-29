@@ -28,7 +28,8 @@ class GroupChatService(private val history: HistoryRepository) : BasePhoneServic
     override val id: String = "group_chat"
     override val title: String = "群聊"
     override val description: String =
-        "查看群聊会话、成员和全局角色；新增/移除成员，创建角色（品牌+模型+思考等级）。"
+        "查看群聊会话、成员和全局角色；提增员申请（编制与预算内自动批准，超阈值转董事长）、" +
+            "推进任务板、新增/移除成员、创建角色（品牌+模型+思考等级）。"
 
     init {
         register(
@@ -70,70 +71,103 @@ class GroupChatService(private val history: HistoryRepository) : BasePhoneServic
         register(
             ServiceMethod(
                 name = "staffing_request",
-                summary = "部长提入职申请（需财务/资源/人力三方审批后才创建成员）",
+                summary = "部长提增员申请：编制与预算内自动批准并入职；超编/超预算/敏感席位转董事长",
                 parameters = Schema.params(
-                    "positionKey" to Schema.string("职位 key"),
-                    "nickname" to Schema.string("成员称呼"),
-                    "requestedBy" to Schema.integer("提议人成员 id"),
-                    required = listOf("positionKey", "nickname"),
+                    "positionKey" to Schema.string("职位 key，如 FRONTEND"),
+                    "reason" to Schema.string("为什么缺人：哪件事卡住了"),
+                    "expected" to Schema.string("入职第一周交付什么"),
+                    "sessionId" to Schema.integer("会话 id；不传当前群"),
                 ),
                 risk = ServiceRisk.INPUT,
             ),
         ) { args ->
-            val session = history.groupChat.ensureDefaultSession()
-            val id = history.groupChat.createStaffing(
-                sessionId = session.id,
-                positionKey = args.reqString("positionKey"),
-                nickname = args.reqString("nickname"),
-                requestedBy = args.optIntOr("requestedBy", 0).takeIf { it > 0 }?.toLong(),
+            val requested = args.optLong("sessionId", 0L)
+            val sessionId = if (requested > 0) requested
+                else history.groupChat.latestSession()?.id
+                ?: history.groupChat.ensureDefaultSession().id
+            val outcome = com.eloykim.lyra.group.HiringDesk.request(
+                sessionId = sessionId,
+                positionKeyRaw = args.reqString("positionKey"),
+                reason = args.optStringOr("reason"),
+                expected = args.optStringOr("expected"),
+                by = args.optIntOr("actorAgentId", 0).takeIf { it > 0 }?.toLong(),
             )
-            ServiceResult.ok("入职申请已提交，等待三方审批", JSONObject().put("requestId", id))
+            val data = JSONObject()
+                .put("sessionId", sessionId)
+                .put("requestId", outcome.requestId)
+                .put("agentId", outcome.agentId)
+                .put("pending", outcome.pending)
+            if (outcome.ok) ServiceResult.ok(outcome.message, data)
+            else ServiceResult.fail("rejected", outcome.message, data)
         }
 
         register(
             ServiceMethod(
                 name = "staffing_approve",
-                summary = "部门审批入职申请：finance / resource / hr；三方齐全后自动创建成员",
+                summary = "对一条待批增员做决定（董事长或总经理）：批准后立即入职",
                 parameters = Schema.params(
                     "requestId" to Schema.integer("申请 id"),
-                    "department" to Schema.string("finance / resource / hr"),
-                    required = listOf("requestId", "department"),
+                    "approve" to Schema.boolean("true 批准 / false 驳回"),
+                    "note" to Schema.string("决定依据"),
+                    "sessionId" to Schema.integer("会话 id；不传当前群"),
                 ),
                 risk = ServiceRisk.INPUT,
             ),
         ) { args ->
-            val requestId = args.reqLong("requestId")
-            val department = args.reqString("department")
-            if (!history.groupChat.approveStaffing(requestId, department)) {
-                return@register ServiceResult.fail("bad_department", "部门只能是 finance/resource/hr")
-            }
-            val request = history.groupChat.staffingRequest(requestId)
-                ?: return@register ServiceResult.fail("not_found", "申请不存在")
-            val financeOk = request["financeOk"] == true
-            val resourceOk = request["resourceOk"] == true
-            val hrOk = request["hrOk"] == true
-            if (!(financeOk && resourceOk && hrOk)) {
-                return@register ServiceResult.ok(
-                    "已记录 $department 审批，仍待其余部门",
-                    JSONObject().put("requestId", requestId)
-                        .put("finance", financeOk).put("resource", resourceOk).put("hr", hrOk),
+            val requested = args.optLong("sessionId", 0L)
+            val sessionId = if (requested > 0) requested
+                else history.groupChat.latestSession()?.id
+                ?: history.groupChat.ensureDefaultSession().id
+            val actor = args.optIntOr("actorAgentId", 0)
+            val outcome = com.eloykim.lyra.group.HiringDesk.decide(
+                sessionId = sessionId,
+                requestId = args.reqLong("requestId"),
+                approve = args.optBoolOr("approve", true),
+                by = actor.takeIf { it > 0 }?.toLong(),
+                note = args.optStringOr("note"),
+            )
+            val data = JSONObject()
+                .put("requestId", outcome.requestId ?: args.reqLong("requestId"))
+                .put("agentId", outcome.agentId)
+            if (outcome.ok) ServiceResult.ok(outcome.message, data)
+            else ServiceResult.fail("bad_state", outcome.message, data)
+        }
+
+        register(
+            ServiceMethod(
+                name = "hiring_list",
+                summary = "增员申请列表：待批、已入职、已驳回",
+                parameters = Schema.params(
+                    "sessionId" to Schema.integer("会话 id；不传当前群"),
+                    "pendingOnly" to Schema.boolean("只看待批"),
+                ),
+                risk = ServiceRisk.READ,
+            ),
+        ) { args ->
+            val requested = args.optLong("sessionId", 0L)
+            val sessionId = if (requested > 0) requested
+                else history.groupChat.latestSession()?.id
+                ?: history.groupChat.ensureDefaultSession().id
+            val pendingOnly = args.optBoolOr("pendingOnly", false)
+            val rows = history.groupChat.staffingList(sessionId)
+                .filter { !pendingOnly || it.state == "proposed" }
+            val array = JSONArray()
+            rows.forEach { row ->
+                array.put(
+                    JSONObject()
+                        .put("id", row.id)
+                        .put("positionKey", row.positionKey)
+                        .put("department", row.department)
+                        .put("nickname", row.nickname)
+                        .put("state", row.state)
+                        .put("reason", row.reason)
+                        .put("expected", row.expected)
+                        .put("agentId", row.agentId),
                 )
             }
-            if (request["agentId"] != null) {
-                return@register ServiceResult.ok("该申请已创建过成员", JSONObject().put("requestId", requestId))
-            }
-            val agentId = history.groupChat.addAgent(
-                sessionId = request["sessionId"] as Long,
-                roleId = null,
-                nickname = request["nickname"] as String,
-                identity = "",
-                positionKey = request["positionKey"] as String,
-            )
-            history.groupChat.markStaffingCreated(requestId, agentId)
-            com.eloykim.lyra.group.GroupOrchestrator.refreshManifest(request["sessionId"] as Long)
             ServiceResult.ok(
-                "三方通过，成员已创建",
-                JSONObject().put("requestId", requestId).put("agentId", agentId),
+                "${array.length()} 条申请（待批 ${rows.count { it.state == "proposed" }}）",
+                JSONObject().put("requests", array),
             )
         }
 

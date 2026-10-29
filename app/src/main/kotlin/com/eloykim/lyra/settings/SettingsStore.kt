@@ -108,7 +108,9 @@ object SettingsStore {
         }.getOrDefault(ThinkingLevel.Medium)
         _state.value = LyraSettings(
             brandId = brand.id,
-            model = if (model in brand.models) model else brand.models.first(),
+            // Keep catalog-discovered models (for example DeepSeek Flash) across
+            // process restarts; the built-in list is only a fallback for new setup.
+            model = model.ifBlank { brand.models.first() },
             themeMode = theme,
             colorTheme = LyraColorTheme.byId(p.getString(K_COLOR_THEME, null)),
             // 系统没有壁纸取色入口时（< Android 12）即使存过 true 也要退回固定配色

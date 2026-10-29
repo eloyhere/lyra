@@ -7,6 +7,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -25,11 +26,13 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -38,6 +41,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -91,8 +95,6 @@ fun GroupChatScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var snapshot by remember { mutableStateOf<GroupChatSnapshot?>(null) }
         var typingAgentId by remember { mutableStateOf<Long?>(null) }
-        var streamingText by remember { mutableStateOf("") }
-        var streamingReason by remember { mutableStateOf("") }
         var pendingUserText by remember { mutableStateOf("") }
 
     var groupTasks by remember { mutableStateOf<List<com.eloykim.lyra.data.GroupTaskRecord>>(emptyList()) }
@@ -102,6 +104,7 @@ fun GroupChatScreen(onBack: () -> Unit) {
             if (sid != null) groupTasks = com.eloykim.lyra.AppGraph.history.groupChat.tasks(sid)
         }
     }
+    var groupHiring by remember { mutableStateOf<List<com.eloykim.lyra.data.StaffingRecord>>(emptyList()) }
     var session by remember { mutableStateOf<GroupChatSession?>(null) }
     var input by remember { mutableStateOf("") }
     var mentionMenu by remember { mutableStateOf(false) }
@@ -119,11 +122,17 @@ fun GroupChatScreen(onBack: () -> Unit) {
     var editAgent by remember { mutableStateOf<GroupAgentRecord?>(null) }
     var showRoleDialog by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    var notice by remember { mutableStateOf<String?>(null) }
     val sending by GroupChatController.sending.collectAsStateWithLifecycle()
     val chatStyle = rememberGroupChatStyle()
 
     suspend fun reload() {
         snapshot = session?.snapshot()
+        val sid = snapshot?.session?.id
+        if (sid != null) {
+            groupTasks = AppGraph.history.groupChat.tasks(sid)
+            groupHiring = AppGraph.history.groupChat.staffingList(sid)
+        }
     }
 
     LaunchedEffect(Unit) {
@@ -143,7 +152,8 @@ fun GroupChatScreen(onBack: () -> Unit) {
             ?.takeIf { id -> scenarioRoles.any { it.id == id } }
             ?: scenarioRoles.firstOrNull()?.id
         session = GroupChatSession(sessionRecord.id)
-        snapshot = session?.snapshot()
+        runCatching { com.eloykim.lyra.group.GroupOrchestrator.ensureOrganization(sessionRecord.id) }
+        reload()
     }
 
     fun openSession(id: Long) {
@@ -159,6 +169,7 @@ fun GroupChatScreen(onBack: () -> Unit) {
                     ?.takeIf { rid -> roleOptions.any { it.id == rid } }
                     ?: roleOptions.firstOrNull()?.id
             }
+            com.eloykim.lyra.group.GroupOrchestrator.ensureOrganization(id)
             reload()
         }
     }
@@ -168,32 +179,7 @@ fun GroupChatScreen(onBack: () -> Unit) {
             val store = AppGraph.history.groupChat
             val created = store.createSession("群聊 ${sessions.size + 1}")
             sessions = store.sessions()
-            // 建群即招募：拉起全部部长
-            val roles = store.roles()
-            val defaultRole = roles.firstOrNull()
-            if (defaultRole != null) {
-                val ministers = listOf(
-                    "产品部长" to "PRODUCT_MINISTER",
-                    "工程部长" to "ENGINEERING_MINISTER",
-                    "运营部长" to "OPERATIONS_MINISTER",
-                    "职能部长" to "STAFF_MINISTER",
-                    "法务部长" to "LEGAL_MINISTER",
-                    "人力部长" to "HR_MINISTER",
-                    "财务部长" to "FINANCE_MINISTER",
-                    "资源部长" to "RESOURCE_MINISTER",
-                )
-                ministers.forEach { (title, key) ->
-                    runCatching {
-                        store.addAgent(
-                            sessionId = created.id,
-                            roleId = defaultRole.id,
-                            nickname = title,
-                            identity = "",
-                            positionKey = key,
-                        )
-                    }
-                }
-            }
+            com.eloykim.lyra.group.GroupOrchestrator.ensureOrganization(created.id)
             session = GroupChatSession(created.id)
             selectedAgents = emptySet()
             quoted = null
@@ -212,8 +198,8 @@ fun GroupChatScreen(onBack: () -> Unit) {
     val quoteTarget = quoted?.takeIf { it.role == "assistant" }?.let { message ->
         data?.agents?.firstOrNull { it.id == message.authorId }
     }
-    val canSend = !sending && input.isNotBlank() &&
-        (activeAgents.isNotEmpty() || quoteTarget != null)
+    // 董事长可以直接发言；未点名时由组织接力顺序自动决定回复者。
+    val canSend = !sending && input.isNotBlank() && data != null
 
     fun sendCurrent() {
         val text = input.trim()
@@ -223,103 +209,47 @@ fun GroupChatScreen(onBack: () -> Unit) {
         }
         if (text.isEmpty()) return
         // 不强制 @：没点名时由群内注意力仲裁选发言人
-        val current = session ?: return
+        session ?: return
         val currentData = snapshot ?: return
         val mentions = targets.joinToString(" ") { "@${it.nickname}" }
-        val content = "$mentions $text"
+        val content = listOf(mentions, text).filter { it.isNotBlank() }.joinToString(" ")
         val quoteSnapshot = quoted
         input = ""
         selectedAgents = emptySet()
         quoted = null
         mentionMenu = false
+        pendingUserText = content
         scope.launch {
             try {
                 error = null
-                // 1) 用户消息先落库 2) 立刻刷新上屏 3) 再发起网络请求
-                runCatching {
-                    com.eloykim.lyra.AppGraph.history.groupChat.addMessage(
-                        sessionId = currentData.session.id,
-                        role = "user",
-                        authorId = null,
-                        authorName = "你",
-                        content = content,
-                        mentions = "",
-                        quotedId = quoteSnapshot?.id,
-                        quotedAuthor = quoteSnapshot?.authorName,
-                        quotedContent = quoteSnapshot?.content,
-                    )
-                }
-                reload()
-                // 空群：启动招募流程，拉起全部部长
-                var roster = currentData.agents
-                if (roster.isEmpty()) {
-                    val defaultRole = currentData.roles.firstOrNull()
-                    if (defaultRole != null) {
-                        val ministers = listOf(
-                            "产品部长" to "PRODUCT_MINISTER",
-                            "工程部长" to "ENGINEERING_MINISTER",
-                            "运营部长" to "OPERATIONS_MINISTER",
-                            "职能部长" to "STAFF_MINISTER",
-                            "法务部长" to "LEGAL_MINISTER",
-                            "人力部长" to "HR_MINISTER",
-                            "财务部长" to "FINANCE_MINISTER",
-                            "资源部长" to "RESOURCE_MINISTER",
-                        )
-                        runCatching {
-                            ministers.forEach { (title, key) ->
-                                com.eloykim.lyra.AppGraph.history.groupChat.addAgent(
-                                    sessionId = currentData.session.id,
-                                    roleId = defaultRole.id,
-                                    nickname = title,
-                                    identity = "",
-                                    positionKey = key,
-                                )
-                            }
-                            com.eloykim.lyra.AppGraph.history.ledger.append(
-                                "group",
-                                "group.recruitment",
-                                org.json.JSONObject()
-                                    .put("sessionId", currentData.session.id)
-                                    .put("count", ministers.size)
-                                    .toString(),
-                            )
-                        }
-                        roster = com.eloykim.lyra.AppGraph.history.groupChat
-                            .agents(currentData.session.id)
-                        reload()
-                    }
-                }
-                val count = GroupChatController.send(
-                    session = current,
+                val count = com.eloykim.lyra.group.GroupOrchestrator.send(
+                    sessionId = currentData.session.id,
                     text = content,
-                    agents = roster,
-                    roles = currentData.roles,
                     quote = quoteSnapshot,
-                    userMessageStored = true,
                     onTyping = { who ->
                         typingAgentId = who
-                        if (who != null) {
-                            streamingText = ""
-                            streamingReason = ""
-                        }
-                    },
-                    onDelta = { who, piece, think ->
-                        typingAgentId = who
-                        streamingText += piece
-                        if (think != null) streamingReason += think
                     },
                     onReply = { _, _, _ ->
-                        // 每有一位说完就刷新一次，逐条上屏
+                        // Commit this speaker's complete message to the visible list
+                        // and let Compose draw it before the next typing indicator appears.
+                        typingAgentId = null
+                        reload()
+                        androidx.compose.runtime.withFrameNanos { }
+                    },
+                    onUserMessage = {
                         scope.launch {
-                            streamingText = ""
-                            streamingReason = ""
                             reload()
+                            pendingUserText = ""
                         }
                     },
                 )
                 reload()
+                pendingUserText = ""
             } catch (t: Throwable) {
                 error = t.message ?: "发送失败"
+                // Keep the locally visible message if the network/organization step
+                // failed; the durable insert may already have succeeded.
+                pendingUserText = ""
             }
         }
     }
@@ -344,7 +274,7 @@ fun GroupChatScreen(onBack: () -> Unit) {
                             }
                             Text(
                                 text = data?.let {
-                                    "${it.agents.size} 个 Agent · 被 @ 才回复"
+                                    "${it.agents.size} 个职位 · 按组织顺序接力"
                                 } ?: "加载中…",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -430,20 +360,52 @@ fun GroupChatScreen(onBack: () -> Unit) {
 
             AgentStrip(
                 agents = data.agents,
-                onLongPress = { name ->
-                    // 长按职位：@ 对应的人（没有对应成员时退化为 @职位名）
+                onPick = { name ->
+                    // 点职位：@ 对应的人（没有对应成员时退化为 @职位名）
                     val nick = data.agents.firstOrNull { it.nickname.contains(name) }?.nickname ?: name
                     input = (if (input.isBlank()) "" else input.trimEnd() + " ") + "@$nick "
+                },
+            )
+            HiringStrip(
+                requests = groupHiring,
+                onApprove = { request ->
+                    scope.launch {
+                        val sid = snapshot?.session?.id ?: return@launch
+                        val outcome = com.eloykim.lyra.group.HiringDesk.decide(
+                            sessionId = sid,
+                            requestId = request.id,
+                            approve = true,
+                            by = null,
+                            note = "董事长批准",
+                        )
+                        notice = outcome.message
+                        reload()
+                    }
+                },
+                onReject = { request ->
+                    scope.launch {
+                        val sid = snapshot?.session?.id ?: return@launch
+                        val outcome = com.eloykim.lyra.group.HiringDesk.decide(
+                            sessionId = sid,
+                            requestId = request.id,
+                            approve = false,
+                            by = null,
+                            note = "董事长驳回",
+                        )
+                        notice = outcome.message
+                        reload()
+                    }
                 },
             )
             TaskStrip(
                 tasks = groupTasks,
                 onAdvance = { task ->
                     scope.launch {
+                        // 与 TaskFlow 一致：doing 先进 review，由人验收后才 done
                         val next = when (task.state) {
-                            "proposed", "claimed" -> "doing"
-                            "doing" -> "done"
-                            "blocked" -> "doing"
+                            "proposed", "ready", "claimed", "blocked" -> "doing"
+                            "doing" -> "review"
+                            "review" -> "done"
                             else -> "done"
                         }
                         com.eloykim.lyra.AppGraph.history.groupChat.moveTask(task.id, next)
@@ -482,8 +444,8 @@ fun GroupChatScreen(onBack: () -> Unit) {
                         withUser + ChatMessage(
                             id = -1L,
                             role = ChatRole.Assistant,
-                            content = if (streamingText.isBlank()) "正在思考…" else streamingText,
-                            reasoning = streamingReason.takeIf { it.isNotBlank() },
+                            content = "",
+                            reasoning = null,
                             pending = true,
                             authorName = name,
                         )
@@ -533,6 +495,15 @@ fun GroupChatScreen(onBack: () -> Unit) {
                 }
             }
 
+            notice?.let {
+                Text(
+                    text = it,
+                    color = MaterialTheme.colorScheme.primary,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 14.dp),
+                )
+            }
+
             error?.let {
                 Text(
                     text = it,
@@ -563,16 +534,29 @@ fun GroupChatScreen(onBack: () -> Unit) {
                     Spacer(Modifier.weight(1f))
                 }
                 Spacer(Modifier.height(6.dp))
-                OutlinedTextField(
-                    value = input,
-                    onValueChange = { input = it },
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    placeholder = { Text("输入消息，回车发送") },
-                    maxLines = 4,
-                    enabled = !sending,
-                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
-                    keyboardActions = KeyboardActions(onSend = { sendCurrent() }),
-                )
+                    verticalAlignment = Alignment.Bottom,
+                ) {
+                    OutlinedTextField(
+                        value = input,
+                        onValueChange = { input = it },
+                        modifier = Modifier.weight(1f),
+                        placeholder = { Text("输入消息，回车发送") },
+                        maxLines = 4,
+                        enabled = !sending,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Send),
+                        keyboardActions = KeyboardActions(onSend = { sendCurrent() }),
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Button(
+                        onClick = { sendCurrent() },
+                        enabled = canSend,
+                        modifier = Modifier.height(56.dp),
+                    ) {
+                        Text("发送")
+                    }
+                }
             }
         }
     }
@@ -722,9 +706,9 @@ fun GroupChatScreen(onBack: () -> Unit) {
 @Composable
 private fun AgentStrip(
     agents: List<GroupAgentRecord>,
-    onLongPress: (String) -> Unit = {},
+    onPick: (String) -> Unit = {},
 ) {
-    // 三层，各自独立横向滚动
+    // 三层，各自独立横向滚动；每格都是 Material3 按钮
     val tiers = remember {
         com.eloykim.lyra.attention.Positions.hierarchy().map { row -> row.map { it.title } }
     }
@@ -739,19 +723,19 @@ private fun AgentStrip(
             Row(
                 modifier = Modifier.horizontalScroll(rememberScrollState()),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
                 row.forEach { label ->
                     val emoji = com.eloykim.lyra.attention.Positions.emojiOf(label)
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                    // 固定 34dp 高度：按钮比默认 40dp 矮，才塞得下三层
+                    FilledTonalButton(
+                        onClick = { onPick(label) },
+                        modifier = Modifier.height(34.dp),
+                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
                     ) {
                         Text(
                             text = "$emoji $label",
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
                 }
@@ -1190,6 +1174,64 @@ private fun RoleDialog(
     )
 }
 
+/**
+ * 待董事长批准的增员。
+ *
+ * 制度内的增员在群里直接入职，不进这里；只有超编、超预算或敏感席位才需要人点一下。
+ */
+@Composable
+private fun HiringStrip(
+    requests: List<com.eloykim.lyra.data.StaffingRecord>,
+    onApprove: (com.eloykim.lyra.data.StaffingRecord) -> Unit,
+    onReject: (com.eloykim.lyra.data.StaffingRecord) -> Unit,
+) {
+    val pending = requests.filter { it.state == "proposed" }
+    if (pending.isEmpty()) return
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .horizontalScroll(rememberScrollState())
+            .padding(horizontal = 12.dp, vertical = 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        pending.forEach { request ->
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.tertiaryContainer,
+            ) {
+                Column(
+                    modifier = Modifier.padding(start = 12.dp, end = 4.dp, top = 6.dp, bottom = 2.dp),
+                ) {
+                    Text(
+                        text = "待批 #${request.id} · ${request.department}·${request.nickname}",
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                    )
+                    Text(
+                        text = request.reason.ifBlank { "未写理由" },
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        maxLines = 1,
+                    )
+                    Row {
+                        TextButton(
+                            onClick = { onApprove(request) },
+                            modifier = Modifier.height(32.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                        ) { Text("批准") }
+                        TextButton(
+                            onClick = { onReject(request) },
+                            modifier = Modifier.height(32.dp),
+                            contentPadding = PaddingValues(horizontal = 8.dp),
+                        ) { Text("驳回", color = MaterialTheme.colorScheme.error) }
+                    }
+                }
+            }
+        }
+    }
+}
+
 /** 任务板：只显示未完成的任务，点一下推进状态，末尾加按钮新建。 */
 @Composable
 private fun TaskStrip(
@@ -1231,6 +1273,7 @@ private fun stateLabel(state: String): String = when (state) {
     "proposed" -> "待认领"
     "claimed" -> "已认领"
     "doing" -> "进行中"
+    "review" -> "待验收"
     "blocked" -> "阻塞"
     "done" -> "完成"
     "dropped" -> "取消"

@@ -378,11 +378,20 @@ object ServiceText {
         else -> String.format(java.util.Locale.US, "%.1fmin", ms / 60_000.0)
     }
 
-    private fun appendPermissions(sb: StringBuilder, permissions: JSONArray) {        sb.appendLine("权限：")
+    private fun appendPermissions(sb: StringBuilder, permissions: JSONArray) {
+        val granted = (0 until permissions.length()).count { permissions.optJSONObject(it)?.optBoolean("granted") == true }
+        sb.appendLine("${permissions.length()} 项权限（$granted 已授予）：")
         for (i in 0 until permissions.length()) {
             val p = permissions.optJSONObject(i) ?: continue
-            val name = p.optString("permission").substringAfterLast('.')
-            sb.appendLine("· $name：${if (p.optBoolean("granted")) "已授予" else "未授予"}")
+            val label = p.optString("label").ifBlank { p.optString("permission").substringAfterLast('.') }
+            val kind = p.optString("kindLabel")
+            val state = if (p.optBoolean("granted")) "已授予" else "未授予"
+            val suffix = when {
+                p.optBoolean("granted") -> ""
+                p.optString("howToGrant").isNotBlank() -> " · ${p.optString("howToGrant")}"
+                else -> ""
+            }
+            sb.appendLine("· $label${if (kind.isNotBlank()) "（$kind）" else ""}：$state$suffix")
         }
     }
 

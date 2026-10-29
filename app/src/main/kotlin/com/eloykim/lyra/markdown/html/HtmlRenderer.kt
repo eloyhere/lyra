@@ -25,15 +25,9 @@ internal object HtmlRenderer {
         is BlockNode.Paragraph -> "<p>${renderInlines(block.children)}</p>"
         is BlockNode.Heading -> "<h${block.level}>${renderInlines(block.children)}</h${block.level}>"
         is BlockNode.FencedCode -> {
-            val language = block.language
-                ?.trim()
-                ?.takeIf { it.isNotEmpty() }
-                ?.uppercase()
-                ?: "CODE"
-            "<div class=\"code-block\"><div class=\"code-bar\">" +
-                "<span>${escapeText(language)}</span>" +
-                "<button type=\"button\" class=\"lyra-copy\">复制</button></div>" +
-                "<pre><code>${escapeText(block.code)}</code></pre></div>"
+            // Keep the public renderer deterministic and safe for TextView/WebView callers.
+            // Rich UI chrome can be layered around this semantic pre/code pair.
+            "<pre><code>${escapeText(block.code)}</code></pre>"
         }
 
         is BlockNode.Canvas -> {

@@ -211,9 +211,9 @@ internal class GroupMessageAdapter(
     var onMentionClick: ((String) -> Unit)? = initialOnMentionClick
     private var recyclerView: RecyclerView? = null
     private val expandedThinking = HashSet<Long>()
-    private val pendingMessageIds = HashSet<Long>()
     private val views = ArrayList<GroupMessageItemView>()
     private var lastScrollToHeadKey = 0
+    private var hasSubmitted = false
     private var atBottom = true
     private val scrollListener = object : RecyclerView.OnScrollListener() {
         override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
@@ -231,13 +231,15 @@ internal class GroupMessageAdapter(
     fun submit(messages: List<ChatMessage>) {
         if (currentList == messages) return
         val old = currentList
+        val followTail = !hasSubmitted || atBottom
+        hasSubmitted = true
         // 只改表情时不滚到底，避免点个赞把正在看的位置顶走。
         val onlyReactions = old.size == messages.size && old.indices.all { index ->
             old[index].id == messages[index].id &&
                 old[index].copy(feedback = messages[index].feedback) == messages[index]
         }
         submitList(messages) {
-            if (!onlyReactions) scrollToBottom()
+            if (!onlyReactions && followTail && atBottom) scrollToBottom()
         }
     }
 
@@ -267,15 +269,6 @@ internal class GroupMessageAdapter(
 
     override fun onBindViewHolder(holder: Holder, position: Int) {
         val message = getItem(position)
-        val animateTypewriter = if (message.pending) {
-            pendingMessageIds += message.id
-            false
-        } else {
-            pendingMessageIds.remove(message.id) &&
-                message.role == ChatRole.Assistant &&
-                !message.error &&
-                message.content.isNotBlank()
-        }
         holder.view.bind(
             message = message,
             style = style,
@@ -289,7 +282,9 @@ internal class GroupMessageAdapter(
             showRegenerate = message.role == ChatRole.Assistant &&
                 !message.pending &&
                 position == itemCount - 1,
-            animateTypewriter = animateTypewriter,
+            // Group replies are persisted complete; do not keep animating an older
+            // speaker while the next speaker's thinking indicator is already shown.
+            animateTypewriter = false,
         )
     }
 
@@ -320,7 +315,7 @@ internal class GroupMessageAdapter(
         if (!atBottom) return
         recycler.post {
             if (atBottom && manager.findLastVisibleItemPosition() >= itemCount - 1) {
-                recycler.scrollToPosition(itemCount - 1)
+                recycler.scrollBy(0, Int.MAX_VALUE)
             }
         }
     }
@@ -328,7 +323,7 @@ internal class GroupMessageAdapter(
     fun scrollToLatestHeadIfNeeded(key: Int) {
         if (key == lastScrollToHeadKey) return
         lastScrollToHeadKey = key
-        scrollToLatestHead()
+        // 不在普通重组时对齐消息头，避免长按选择/复制触发跳屏。
     }
 
     /** 关闭引用/思考后，把指定消息的顶部对齐到视口。 */
@@ -352,7 +347,7 @@ internal class GroupMessageAdapter(
         val recycler = recyclerView ?: return
         atBottom = true
         recycler.post {
-            if (itemCount > 0) recycler.scrollToPosition(itemCount - 1)
+            if (itemCount > 0) recycler.scrollBy(0, Int.MAX_VALUE)
         }
     }
 
@@ -1616,13 +1611,20 @@ internal object ChatHtml {
                     var body = document.body;
                     var html = document.documentElement;
                     // 只用 body 的内容高度；html 的视口高度会把上一条消息的高度反馈回来。
-                    var height = Math.max(body.scrollHeight, body.offsetHeight);
+                    var height = Math.max(
+                      body.scrollHeight,
+                      body.offsetHeight,
+                      html.scrollHeight,
+                      html.offsetHeight
+                    );
                     if (window.LyraHeight) window.LyraHeight.postMessage(String(height));
                   }
                   window.addEventListener('load', report);
                   document.addEventListener('DOMContentLoaded', report);
                   setTimeout(report, 50);
                   setTimeout(report, 300);
+                  setTimeout(report, 800);
+                  setTimeout(report, 1500);
                   if (window.ResizeObserver) {
                     new ResizeObserver(report).observe(document.body);
                   }

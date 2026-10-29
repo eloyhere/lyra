@@ -47,7 +47,7 @@ class LlmAgentBackend(
     override var lastPredictedVoi: Double? = null
         private set
 
-    override var lastFrame: com.eloykim.lyra.attention.FrameDraft? = null
+    override var lastFrame: com.eloykim.lyra.amp.protocol.frame.Frame? = null
         private set
 
     private var task: String = ""
@@ -199,7 +199,7 @@ class LlmAgentBackend(
         )
 
         lastPredictedVoi = frame.slots.firstOrNull()?.voi?.toDouble()
-        lastFrame = frame
+        lastFrame = frame.toProtocolFrame()
         val focused = frame.slots.map { slot ->
             "[${slot.id}] ${slot.label} · ${slot.why}"
         }

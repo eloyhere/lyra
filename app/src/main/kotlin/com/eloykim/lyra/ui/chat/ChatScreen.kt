@@ -347,7 +347,6 @@ fun ChatScreen(
                 onPickQuote = { pendingQuote = it },
                 onCancelQuote = {
                     pendingQuote = null
-                    scrollToLatestHeadKey += 1
                 },
                 onSend = {
                     val text = input.trim()

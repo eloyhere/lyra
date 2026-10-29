@@ -101,5 +101,5 @@ surface 浅色 98、深色 6；容器色阶 100 / 96 / 94 / 92 / 90（深色 4 /
 - Lab 往返、L\* 已知值、主题 id 回退。
 
 ```bash
-./gradlew :core:designsystem:testDebugUnitTest
+./gradlew :app:testDebugUnitTest
 ```

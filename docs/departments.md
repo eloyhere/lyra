@@ -50,15 +50,19 @@
 ### 4.1 入岗（增员）
 
 ```
-部长 staffing_request(positionKey, nickname)
-  → 财务 staffing_approve(finance)     预算是否允许
-  → 资源 staffing_approve(resource)    编制/资源是否允许
-  → 人力 staffing_approve(hr)          三方齐 → 自动创建成员
-  → 人力 assign_role(agentId, roleId)  绑定真实角色
+部长 request_hire(positionKey, reason, expected)
+  → HiringPolicy 判定（纯函数，0 次模型调用）
+       · 理由为空 / 已有人在岗 / 未决申请 ≥2        → 拒绝
+       · 编制、部门配额、预算余量都够              → 自动批准并入职
+       · 超编 / 超预算 / 敏感席位（财务·法务·人力…）→ 升级董事长一次
+  → 人力（系统）建成员 + 绑角色
   → manifest 自动刷新
 ```
 
-任一方否决 → 申请停在 `proposed`，部长必须改需求再提；**不允许绕过**（除董事长直聘，见 §7）。
+财务与法务不再是"各点一次头"的审批人，而是约束与风险位：
+预算余量由 `HiringFacts` 计算，敏感席位永远升级。详见 `docs/hiring-and-task-flow.md`。
+三方会签的写法（`finance/resource/hr` 三列）仅作兼容保留，不再要求逐步通过。
+董事长直聘（见 §7）仍保留，用于冷启动。
 
 ### 4.2 任务派发（执行）
 
@@ -88,7 +92,7 @@
 
 | 事项 | 需要的审批 | 失败时 |
 |---|---|---|
-| 增员 | 财务 + 资源 + 人力 | 停在 proposed，记录否决方 |
+| 增员 | 策略门（编制+预算）；超阈值升级董事长 | 拒绝并说明缺哪条依据 |
 | 预算调整 | 财务 | 拒绝并说明依据 |
 | 合规例外 | 法务 + 总经理 | 一律否决 |
 | 外部资源采购 | 资源 + 财务 | 停在 proposed |

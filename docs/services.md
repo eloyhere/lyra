@@ -129,6 +129,17 @@ ServiceHub ──┬── ScreenService       观察 / 等待屏幕变化
 | `contacts.search` / `contacts.get` / `contacts.lookup` / `contacts.count` | 联系人（只读） |
 | `calendar.agenda` / `calendar.create` | 日程读取 / 创建编辑界面 |
 
+### 首页命令的启动顺序
+
+首页按「先列应用、再启动」执行，顺序固定：
+
+1. `application.list`：列出本机全部可启动应用；
+2. 模型从这份真实目录里选一个包名（不猜包名）；
+3. `application.launch`：通过策略闸门打开目标应用；
+4. 无障碍服务在目标应用上开始 observe / act。
+
+没有合适应用时直接向用户提问，启动失败时结束本次运行——**不会退回 Lyra 自己的界面反复尝试**。
+
 ## 4. 用度计价（UsageService）
 
 `usage.*` 不写账本，只读 receipt；费用按**设置里的当前品牌/模型**动态计算：

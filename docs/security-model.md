@@ -125,7 +125,7 @@ Lyra **永不代付**，连"人工确认后由 Lyra 点支付"也不做。v1 的
 ## 8. 测试
 
 ```bash
-./gradlew :core:policy:testDebugUnitTest
+./gradlew :app:testDebugUnitTest
 ```
 
 `PolicyGuardTest` 覆盖 10 条：自身、系统、收银台、支付包、凭证、发消息、删文件、退出登录、普通浏览、启动支付应用。

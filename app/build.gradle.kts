@@ -38,6 +38,13 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        // 合并自 core:accessibility：IAutomation.aidl 在 app/src/main/aidl 下
+        aidl = true
+    }
+
+    testOptions {
+        // 合并自 core:amp-protocol：单测里会碰到 android.jar 的桩实现
+        unitTests.isReturnDefaultValues = true
     }
 
     packaging {
@@ -46,16 +53,8 @@ android {
 }
 
 dependencies {
-    implementation(project(":core:model"))
-    implementation(project(":core:policy"))
-    implementation(project(":core:agent"))
-    implementation(project(":core:data"))
-    implementation(project(":core:network"))
-    implementation(project(":core:amp"))
-    implementation(project(":core:attention"))
+    // core:* 已并入本模块，这里不再有 project(":core:...") 依赖
     implementation("com.google.mlkit:text-recognition-chinese:16.0.1")
-    implementation(project(":core:designsystem"))
-    implementation(project(":core:accessibility"))
 
     // 端侧语音识别：sherpa-onnx + SenseVoice（JitPack AAR）
     implementation("com.github.k2-fsa.sherpa-onnx:sherpa-onnx:v1.13.6")

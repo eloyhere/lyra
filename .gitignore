@@ -1,11 +1,17 @@
 # Gradle / IDE
 .gradle/
+.gradle-user/
 build/
 */build/
 **/build/
 .idea/
 .kotlin/
 local.properties
+gradle/gradle-daemon-jvm.properties
+
+# 本地工具与缓存
+.android/
+.downloads/
 
 # 本地临时
 .scratch/

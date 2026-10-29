@@ -1,113 +1,119 @@
-# AMP 接入说明
+# AMP 0.4.1 接入与一致性
 
-> 对端协议：[`R:\project\attention-manifest-protocol`](file:///R:/project/attention-manifest-protocol)（Attention Manifest Protocol v0.1）
-> 实现：`core:amp`（纯 Kotlin，可 JVM 单测）
+> 参考实现：`R:\project\attention-manifest-protocol`（包版本 0.4.1，wire schema 仍为 `0.1`）
+> Kotlin 端口：`core:amp-protocol`（纯协议层，无 Android UI 依赖；219 个源文件 / 约 5.3 万行）
+> 外部校验：`tools/amp-conformance/*.mjs`（Node 24 直接读取参考仓库的 schema 与 canonical 实现）
 
-Lyra 把每一次「看屏幕 → 做动作」都写成 AMP 对象：**Manifest 声明自己是谁、Frame 记录这一轮注意了什么/忽略了什么、Receipt 结算这次动作花了多少**。
-
----
-
-## 1. 对象映射
-
-| AMP 对象 | Lyra 里的来源 | 写入时机 |
-|---|---|---|
-| `Manifest` | 能力声明（observe/tap/setText/scroll/launch）+ 硬约束 + 注意力预算 | 服务启动 / 能力变化时（待接） |
-| `Frame` | 一次 `observe()`：目标、读屏工具、这一屏作为证据、被压缩掉的元素 | 每次观察 |
-| `Receipt` | 一次动作：op、耗时、结果（success/failure/blocked） | 每次动作 |
-
-一条典型轨迹：
+Lyra 的目标不是「字段看起来像 AMP」，而是**导出的 JSON 能被参考实现重新计算 digest、验证签名、通过 schema**。为此协议层与设备运行时是分开的两层：
 
 ```
-Frame(f.1)  ← 打开外卖 App，屏幕 75 节点，送出 9 个元素，忽略 66 个（budget）
-Receipt(rc.1, op=act, ms=180, outcome=success)   ← 点击搜索
-Frame(f.2)  ← 新屏幕
-Receipt(rc.2, op=act, outcome=blocked)           ← 命中支付按钮，被策略拒绝
+core:amp-protocol   参考实现的 Kotlin 端口（Frame/Receipt/Ledger/Manifest/Attention/
+                    Warrant/Governance/Runtime/Context/MCP/A2A/...）
+core:agent          Lyra 的 Agent 循环；AmpFrameAdapter 把焦点草稿变成协议 Frame
+core:data           只追加的 SQLite 落库；payload 是 canonical JSON
+app                 真机 UI、授权闸门、调试探针
 ```
 
-`Frame.parent` 指向上一次观察，形成只追加的注意力链（X-1）。
+## 1. 版本关系
 
----
-
-## 2. 不变量怎么落地
-
-| 不变量 | 实现点 | 测试 |
-|---|---|---|
-| **A-1 焦点有据** | `Slot` 的 `init` 强制 `why` 非空、`cost` 非空，缺失直接抛异常 | `slot 缺少 why 会被拒绝` |
-| **A-2 忽略显式** | `FrameBuilder` 把压缩掉的节点写成 `Ignored(reason=budget, revisit_if=...)` | `frame 满足 A-1 A-2 A-3` |
-| **A-3 预算刚性** | `Usage.exceeds(Budget)`；`Frame.violations()` 在写账本前检查 | 同上 |
-| **A-5 模型提议宿主裁决** | 授权由 `ConsentManager`（宿主）决定，模型只能发起；拒绝会写 `Receipt(outcome=blocked)` | 策略测试 |
-| **M-1 自述可验** | Manifest 的能力声明与实际执行共用同一套 `PolicyGuard` 常量 | `manifest 有 digest 与签名` |
-| **X-1 只追加** | `AmpLedger` 只有 `append`，没有 update/delete；`resetForTest` 仅在测试用 | `ledger 只追加…` |
-
-Digest：对"不含 digest 的规范化 JSON"取 SHA-256，字段顺序固定，保证同内容同摘要。
-
----
-
-## 3. 代码结构
-
-```
-core/amp/
-├── Json.kt          # 极简 JSON writer（不用 org.json / kotlinx.serialization）
-├── AmpIds.kt        # id 规则 + sha256
-├── AmpModels.kt     # Frame / Receipt / Slot / Budget … + violations()
-├── FrameBuilder.kt  # Observation -> Frame
-├── AmpLedger.kt     # 只追加账本 + StateFlow
-└── Manifest.kt      # 能力/约束声明 + Ed25519 签名
-```
-
-`core:accessibility/AmpRecorder.kt` 负责把服务层的观察与动作喂给账本；Agent 循环落地后这个职责上移。
-
----
-
-## 4. Manifest 长什么样
-
-```json
-{
-  "amp": "0.1",
-  "kind": "manifest",
-  "agent": { "id": "a.lyra", "name": "Lyra", "version": "0.1.0", "role": "on-device phone operator" },
-  "issued": "2026-10-24T07:00:00Z",
-  "expires": "2026-10-25T07:00:00Z",
-  "identity": {
-    "constraints": [
-      { "id": "c.no_payment", "statement": "永不执行支付、转账、免密支付等资金操作", "enforcement": "hard" },
-      { "id": "c.consent_messaging", "statement": "发送消息前必须获得用户当场授权", "enforcement": "soft" }
-    ]
-  },
-  "capabilities": [
-    { "id": "automation.observe", "kind": "perception", "confidence": 0.95, "tier": "T1", "cost": { "ms": 30, "calls": 1 } }
-  ],
-  "attention": {
-    "policy_digest": "sha256:<策略文本摘要>",
-    "budget": { "tokens": 60000, "ms": 480000, "calls": 40, "interrupts": 2 }
-  },
-  "self": { "calibration": { "ece": 0.0 }, "limits": ["只知道当前屏幕，…"] },
-  "digest": "sha256:…",
-  "signatures": [{ "role": "self", "alg": "ed25519", "kid": "lyra#1", "sig": "…" }]
-}
-```
-
-`attention.policy_digest` 是策略文本的摘要 —— 改策略就改摘要，可审计（这是把"承诺"接到"执行"上的钩子）。
-
----
-
-## 5. 还没实现的部分
-
-| 项 | 说明 |
+| 层 | 版本 |
 |---|---|
-| `Claim` / `Hypothesis` / `Unknown` | 需要 Agent 循环产出主张；当前只有注意层 |
-| `Plan` / `Goal` | 任务尚未结构化，Frame 的 `goal` 暂时为空 |
-| `social` / `inquiry` | 单人单机场景暂不需要 |
-| Receipt 的 `predicted_voi` / `realized_voi` | 需要校准数据积累后再填 |
-| 签名密钥持久化 | 当前 Ed25519 密钥对在内存，重启后 `kid` 不变但签名公钥会变；应落 Keystore |
-| Manifest 定时刷新 | 目前只有 `build()`，还没有「过期前重签」的调度 |
+| 参考包 | `0.4.1` |
+| wire schema | `0.1`（`docs/schemas/*.schema.json`） |
+| Kotlin 协议对象 | `amp: "0.1"`，`AmpWire.KERNEL_VERSION = "0.4.1"` |
 
----
+wire 版本没有跟着包版本升，是因为参考仓库的 schema `$id` 仍是 `0.1`；Lyra 不伪造 `0.4.1` 的 wire 对象。
+
+## 2. 已对齐的硬约束
+
+| 约束 | 实现点 |
+|---|---|
+| canonical JSON | `semantic/CanonicalJson.kt`：递归排序键、JS `JSON.stringify` 数字/字符串格式、无空白 |
+| digest | `sha256(canonical(body))`；Frame/Manifest/链条目/检查点全部走这一条路径 |
+| Manifest 签名 | 对「去掉 `signatures` 的 canonical body（含 `digest`）」签名；base64url；`verifyManifest` 先重算 digest |
+| Frame 边界 | 9 slot 上限、ignored 上限 50 + `deferred`、引用闭包、预算一致性、id 语法 |
+| 只追加 | `Ledger` 只有 append；`FrameStore` 没有 UPDATE；`markImpasse` 改为事件，不再回写旧帧 |
+| Receipt/Event | `receipt.schema.json` 的 `oneOf`；`handle` 可选；`usage` 五维 |
+| 账本快照 | `{seq,kind,payload,prev}` 哈希链；`verifySnapshot` 可检出改、删、重排 |
+| 检查点 | 域分隔 `amp:ledger-checkpoint:0.1`；`prev` 首条省略；Ed25519 签名 |
+| 治理/运行时 | Matrix/Perspectives/Legal/Budget/Control/AttentionManifest/Credential/Workflow/Audit/Transport/Switching/ToolPolicy 等端口 |
+| MCP/workspace | JSON-RPC 信封、stateless/legacy 协商、七工具、1 MiB/64 MiB 限制、通知不执行工具 |
+
+## 3. 外部可验证
+
+先跑 Kotlin 测试导出真实对象：
+
+```bash
+./gradlew :app:testDebugUnitTest
+node tools/amp-conformance/validate-wire.mjs
+node tools/amp-conformance/compare-canonical.mjs
+node tools/amp-conformance/compare-numbers.mjs
+```
+
+输出：
+
+- `app/build/amp-wire/{frame,receipt,manifest,ledger-snapshot}.json`
+- `manifest-public-key.b64`（SPKI DER，base64）
+- `amp-canonical-kotlin.json` / `amp-numbers-kotlin.json`
+
+`validate-wire.mjs` 用参考仓库的 schema 校验、重算 Frame/Manifest digest、用导出的公钥验证 Ed25519 签名，并重算 ledger 快照的每条链哈希。当前结果：`wire conformance: 4/4`，`canonical 18/18`，`number formatting 31/31`。
+
+## 4. Lyra 运行时绑定
+
+`core:agent/AmpFrameAdapter.kt` 是唯一把「注意力选择器的 FrameDraft」变成协议 `Frame` 的地方：
+
+```
+AttentionSelector.select(...) -> FrameDraft
+  -> frameFrom(draft, refTable)   // 算 digest、拒绝悬空引用
+  -> FrameStore.append(runId, Frame) // payload = canonical JSON
+```
+
+- goal/tool 引用在 `RefTable` 中登记；UI 节点使用 `entity`（opaque）引用。
+- slot 的 `why`、`cost`、`salience` 来自选择器；ignored 的 `reason`/`revisit_if` 原样保留。
+- 模型只看到焦点集与忽略摘要，不再看完整树。
+- `AgentSession` 的 `EventSink` 现在写入 `amp_protocol_events`：每条是完整 canonical `AmpEvent`，`hash = digestOf({seq, kind:"event", payload:event_json, prev})`，与参考实现 `ledger/persistence.ts` 同构。旧 `LedgerStore` 的 `amp_events` 表保留为历史投影，不再写入。
+- SQLite v36 是一次开发期清空迁移：旧 `frames`/`amp_events` 的自定义 JSON 与哈希链不再兼容，`LyraDatabase.onUpgrade` 会删除应用自己的表并重建。**这会导致聊天、任务、画像等数据一起清空**；发布版应改为增量迁移，而不是沿用这条开发迁移。
+
+调试探针（仅 debug 构建）：
+
+```bash
+adb shell am start -n com.eloykim.lyra/.MainActivity \
+  -e task "focus_probe" -e focus 1 -e self 1
+adb shell "run-as com.eloykim.lyra sqlite3 databases/lyra_history.db \
+  'SELECT digest,substr(payload,1,240) FROM frames ORDER BY id DESC LIMIT 1'"
+
+# 协议事件账本自检：追加一条事件，再用 Node 重算 digest/hash
+adb shell am start -n com.eloykim.lyra/.MainActivity -e command amp.appendTest
+adb shell "run-as com.eloykim.lyra sqlite3 databases/lyra_history.db \
+  'SELECT seq,digest,hash FROM amp_protocol_events ORDER BY seq DESC LIMIT 1'"
+```
+
+`-e focus 1` 走 `FocusProbeBackend`（只生成一帧、不调模型）；`-e self 1` 仅 debug 下允许观察 Lyra 自身界面。普通任务仍走 `LlmAgentBackend`，`self` 默认关闭。`amp.appendTest` 只在 debug 的 `CommandDebug` 分支里存在。
+
+## 5. 覆盖与已知缺口
+
+已移植：`attention/authz/bayes/boundary/concept/concurrency/context/cooperation/crypto/database/delegate/diagnosis/error/evaluation/evidence/execution/frame/goal/governance/interaction/ipc/json/kernel/ledger/lock/manifest/mission/module/policy/progress/protocol/receipt/registry/runtime/scenario/schema/semantic/storage/store/structure/thread/types/warrant/window`。
+
+明确缺口 / 偏差：
+
+| 项 | 状态 |
+|---|---|
+| `src/database/**`（59 文件） | SQL/entity/repository/service/store 层已移植；Lyra 设备侧仍由 `core:data` 的 Android SQLite 适配器承接 |
+| `database` 测试 | 端口已编译；JUnit 覆盖仍待补 |
+| `registry/registry.ts` | 已补 `Registry.kt` / `RegistryStore.kt` / `RegistryTypes.kt`，含模块漂移校验 |
+| `store/database` 实体 | 窄接口 + 内存适配器；真实 SQLite 绑定在宿主侧 |
+| Ed25519 | JCA；Android < API 33 无 provider 时签名失败关闭，不伪造 |
+| HTTP server | `ServerSocket` + Content-Length；不支持 chunked / TLS |
+| 治理对象 JSON | 参考仓库没有 schema 的部分按 TS 接口 camelCase 序列化；不伪造 schema |
+| `policy` 未知 effect | 在 `fromJson` 直接拒绝（比参考实现更早失败关闭） |
+
+这些偏差都要求「宁可拒绝，不可静默降级」；新增能力时先补 schema 与外部校验，再接进 Agent 循环。
 
 ## 6. 自检
 
 ```bash
-./gradlew :core:amp:testDebugUnitTest
+./gradlew :app:testDebugUnitTest :app:assembleDebug
+node tools/amp-conformance/validate-wire.mjs
 ```
 
-9 条用例：不变量、digest、slot 上限、why 强制、账本只追加、Manifest 签名、JSON 转义、id 规则、digest 稳定性。
+当前：协议层 1073 条 JUnit、Agent 层 31 条、注意力层 80 条、wire 4/4、canonical 18/18、数字格式 31/31；MuMu `emulator-5554`（Android 15 / API 35）安装运行，SQLite 中的 Frame payload 与协议事件 `event_json` 均已用 Node 重算 schema/digest/hash 并通过。

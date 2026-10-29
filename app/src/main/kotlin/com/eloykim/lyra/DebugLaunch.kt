@@ -49,4 +49,12 @@ object DebugLaunch {
     /** 调试用：启动时强制压缩账本，保留最近 N 条；0 表示按阈值自动判断。 */
     @Volatile
     var compactKeep: Int = 0
+
+    /** 调试用：只跑一次焦点选择并落一帧，不调用模型；用于验证 AMP 落库链路。 */
+    @Volatile
+    var focusProbe: Boolean = false
+
+    /** 调试用：允许观察到 Lyra 自身界面，仅 debug 构建且显式传 self=true 时生效。 */
+    @Volatile
+    var allowSelfObservation: Boolean = false
 }

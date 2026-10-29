@@ -112,11 +112,10 @@ import com.eloykim.lyra.agent.AgentSession
 import com.eloykim.lyra.notify.LyraNotifications
 import com.eloykim.lyra.notify.NoticeLevel
 import com.eloykim.lyra.attention.BudgetScheduler
-import com.eloykim.lyra.attention.digest
-import com.eloykim.lyra.agent.toPayload
 import com.eloykim.lyra.attention.BudgetVector
 import com.eloykim.lyra.agent.ScriptStep
 import com.eloykim.lyra.agent.AgentBackend
+import com.eloykim.lyra.agent.FocusProbeBackend
 import com.eloykim.lyra.agent.LlmAgentBackend
 import com.eloykim.lyra.agent.ScriptedBackend
 import com.eloykim.lyra.agent.Verb
@@ -284,7 +283,7 @@ fun HomeScreen(
 
     fun startAgent(task: String, demo: Boolean = false) {
         if (demoRunning) return
-        if (!demo && !AccessibilityState.connected.value) {
+        if (!demo && !com.eloykim.lyra.DebugLaunch.focusProbe && !AccessibilityState.connected.value) {
             scope.launch { snackbarHostState.showSnackbar("无障碍服务未连接，不能执行任务") }
             return
         }
@@ -310,7 +309,7 @@ fun HomeScreen(
                 val canUseLlm = provider != null && baseUrl != null &&
                     (keyOptional || !key.isNullOrBlank())
 
-                if (!demo && !canUseLlm) {
+                if (!demo && !com.eloykim.lyra.DebugLaunch.focusProbe && !canUseLlm) {
                     val reason = "没有可用的模型服务：请检查品牌、Base URL 和 API Key"
                     demoLog = listOf(reason)
                     submitted = "启动失败"
@@ -319,25 +318,42 @@ fun HomeScreen(
                     return@launch
                 }
 
-                val backend: AgentBackend = if (demo) {
-                    ScriptedBackend(demoSteps)
-                } else {
-                    val client = LlmClients.create(
-                        providerId = provider!!.id,
-                        baseUrl = baseUrl!!,
-                        apiKey = key.orEmpty(),
-                        model = settings.model,
-                        thinking = settings.thinkingLevel,
-                    )
-                    LlmAgentBackend(
-                        client = client,
-                        handles = AppGraph.handles,
-                        translator = com.eloykim.lyra.voice.TranslationService(client),
-                        targetLanguage = com.eloykim.lyra.settings
-                            .findLanguage(settings.languageId).english,
-                        inputPrice = modelRow?.inputPrice,
-                        outputPrice = modelRow?.outputPrice,
-                    )
+                val backend: AgentBackend
+                var launchPlanner: com.eloykim.lyra.agent.AppLaunchPlanner? = null
+                when {
+                    com.eloykim.lyra.DebugLaunch.focusProbe -> {
+                        backend = FocusProbeBackend(task)
+                    }
+
+                    demo -> {
+                        backend = ScriptedBackend(demoSteps)
+                    }
+
+                    else -> {
+                        val client = LlmClients.create(
+                            providerId = provider!!.id,
+                            baseUrl = baseUrl!!,
+                            apiKey = key.orEmpty(),
+                            model = settings.model,
+                            thinking = settings.thinkingLevel,
+                        )
+                        backend = LlmAgentBackend(
+                            client = client,
+                            handles = AppGraph.handles,
+                            translator = com.eloykim.lyra.voice.TranslationService(client),
+                            targetLanguage = com.eloykim.lyra.settings
+                                .findLanguage(settings.languageId).english,
+                            inputPrice = modelRow?.inputPrice,
+                            outputPrice = modelRow?.outputPrice,
+                        )
+                        // 首页命令必须先经 application.list 选应用，再 application.launch；
+                        // 否则第一帧是 Lyra 自己，模型只会在 Lyra 界面里反复尝试。
+                        launchPlanner = com.eloykim.lyra.agent.LlmAppLaunchPlanner(
+                            client = client,
+                            inputPrice = modelRow?.inputPrice,
+                            outputPrice = modelRow?.outputPrice,
+                        )
+                    }
                 }
                 val session = AgentSession(
                     AidlGateway(),
@@ -345,6 +361,7 @@ fun HomeScreen(
                     recorder = history,
                     handles = AppGraph.handles,
                     apps = appCatalog,
+                    launchPlanner = launchPlanner,
                     voice = agentVoice,
                     searchChatHistory = { query, limit ->
                         val result = AppGraph.commands.run(
@@ -391,25 +408,10 @@ fun HomeScreen(
                     frames = object : com.eloykim.lyra.agent.FrameRecorder {
                         override suspend fun record(
                             runId: Long,
-                            frame: com.eloykim.lyra.attention.FrameDraft,
+                            frame: com.eloykim.lyra.amp.protocol.frame.Frame,
                         ) {
                             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                runCatching {
-                                    history.frames.append(
-                                        runId = runId,
-                                        cycle = frame.cycle,
-                                        mode = frame.mode,
-                                        goal = frame.goal,
-                                        digest = frame.digest(),
-                                        payload = frame.toPayload(),
-                                    )
-                                }
-                            }
-                        }
-
-                        override suspend fun markImpasse(runId: Long, state: String) {
-                            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                runCatching { history.frames.markImpasse(runId, state) }
+                                runCatching { history.frames.append(runId, frame) }
                             }
                         }
                     },

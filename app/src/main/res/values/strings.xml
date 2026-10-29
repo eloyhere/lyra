@@ -120,4 +120,7 @@
     <string name="settings_key_saved">Saved %1$s · Keystore encrypted, on-device only</string>
     <string name="settings_history">%1$d runs · %2$d steps · %3$d apps</string>
     <string name="log_decided">Decide</string>
+    <!-- 无障碍服务（合并自 core:accessibility） -->
+    <string name="lyra_accessibility_label">Lyra 操作服务</string>
+    <string name="lyra_accessibility_description">Lyra 需要读取当前屏幕的控件，才能代替你完成点外卖、打车等操作。只在你发起任务时读取，不做常驻监听。</string>
 </resources>

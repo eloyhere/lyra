@@ -10,6 +10,7 @@ import androidx.core.content.ContextCompat
 import com.eloykim.lyra.accessibility.AccessibilityState
 import com.eloykim.lyra.accessibility.AutomationClient
 import com.eloykim.lyra.data.HistoryRepository
+import com.eloykim.lyra.permission.PermissionCatalog
 import com.eloykim.lyra.service.BasePhoneService
 import com.eloykim.lyra.service.Schema
 import com.eloykim.lyra.service.ServiceMethod
@@ -137,20 +138,17 @@ class StatusService(
     }
 
     private fun permissions(): ServiceResult {
+        val entries = PermissionCatalog.entries(context)
         val array = JSONArray()
-        permissionRows().forEach { (name, granted) ->
-            array.put(
-                JSONObject()
-                    .put("permission", name)
-                    .put("granted", granted),
-            )
-        }
+        entries.forEach { array.put(it.toJson()) }
         return ServiceResult.ok(
             "ok",
             JSONObject()
                 .put("permissions", array)
-                .put("accessibility", accessibilityEnabled())
-                .put("notificationListener", notificationListenerEnabled())
+                .put("grantedCount", entries.count { it.granted })
+                .put("pendingCount", entries.count { !it.granted })
+                .put("accessibility", PermissionCatalog.accessibilityEnabled(context))
+                .put("notificationListener", PermissionCatalog.listenerEnabled(context))
                 .put("notificationPost", canPostNotifications()),
         )
     }
@@ -187,7 +185,7 @@ class StatusService(
     private fun connectionsJson(): JSONObject = JSONObject()
         .put("accessibility", AccessibilityState.connected.value)
         .put("automation", AutomationClient.connected.value)
-        .put("notificationListener", notificationListenerEnabled())
+        .put("notificationListener", PermissionCatalog.listenerEnabled(context))
         .put("database", context.getDatabasePath(DB_NAME).exists())
 
     private fun appJson(): JSONObject {
@@ -214,32 +212,6 @@ class StatusService(
         .put("model", Build.MODEL)
         .put("sdk", Build.VERSION.SDK_INT)
         .put("android", Build.VERSION.RELEASE)
-
-    private fun permissionRows(): List<Pair<String, Boolean>> = listOf(
-        Manifest.permission.RECORD_AUDIO,
-        Manifest.permission.POST_NOTIFICATIONS,
-        Manifest.permission.SEND_SMS,
-        Manifest.permission.READ_SMS,
-        Manifest.permission.READ_CONTACTS,
-        Manifest.permission.READ_CALENDAR,
-    ).map { permission ->
-        permission to (
-            ContextCompat.checkSelfPermission(context, permission) ==
-                PackageManager.PERMISSION_GRANTED
-            )
-    }
-
-    private fun accessibilityEnabled(): Boolean {
-        val enabled = Settings.Secure.getString(
-            context.contentResolver,
-            Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
-        ).orEmpty()
-        return enabled.contains(context.packageName)
-    }
-
-    private fun notificationListenerEnabled(): Boolean =
-        NotificationManagerCompat.getEnabledListenerPackages(context)
-            .contains(context.packageName)
 
     private fun canPostNotifications(): Boolean =
         Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||

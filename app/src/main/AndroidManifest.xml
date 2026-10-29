@@ -19,6 +19,10 @@
     <!-- 照片与媒体：相册读取；Android 13+ 使用 READ_MEDIA_*。 -->
     <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
     <uses-permission android:name="android.permission.READ_MEDIA_VISUAL_USER_SELECTED" />
+    <!-- Android 12 及以下的文件读取（合并自 core:accessibility）。 -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission
         android:name="android.permission.WRITE_EXTERNAL_STORAGE"
@@ -92,6 +96,27 @@
         <!-- 交互式通知的按钮/输入回传；只接受本应用显式 PendingIntent。 -->
         <receiver
             android:name=".service.notification.LyraNotificationActionReceiver"
+            android:exported="false" />
+
+        <!-- 无障碍服务：读取屏幕结构并执行点击/滑动（合并自 core:accessibility）。 -->
+        <service
+            android:name=".accessibility.LyraAccessibilityService"
+            android:exported="true"
+            android:label="@string/lyra_accessibility_label"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/lyra_accessibility_service" />
+        </service>
+
+        <!-- 阶段一：仅应用内绑定。要跨进程/跨应用开放时，改成 exported=true 并加 signature 级权限。 -->
+        <service
+            android:name=".automation.AutomationService"
             android:exported="false" />
 
     </application>

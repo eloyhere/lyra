@@ -9,6 +9,7 @@ import com.eloykim.lyra.network.LlmMessage
 import com.eloykim.lyra.network.LlmResult
 import com.eloykim.lyra.network.LlmTool
 import com.eloykim.lyra.network.LlmToolCall
+import com.eloykim.lyra.network.LlmUsage
 import com.eloykim.lyra.service.ServiceCommand
 import com.eloykim.lyra.service.ServiceResult
 import com.eloykim.lyra.service.ServiceRisk
@@ -582,8 +583,6 @@ internal object ChatController {
         val outputTokens: Int = 0,
     )
 
-    private data class ToolExecution(val output: String, val quote: MessageQuote? = null)
-
     private suspend fun requestReply(conversationId: Long): ChatReply {
         val settings = SettingsStore.state.value
         val key = SettingsStore.apiKey()
@@ -705,53 +704,41 @@ internal object ChatController {
         messages += LlmMessage("system", system + memory)
         messages += historyForModel
 
-        var last: LlmResult? = null
-        var replyQuote: MessageQuote? = null
-        var inputTokens = 0
-        var outputTokens = 0
-        repeat(3) {
-            val result = client.complete(messages, listOf(SERVICE_TOOL))
-            last = result
-            inputTokens += result.usage.inputTokens
-            outputTokens += result.usage.outputTokens
-            if (result.toolCalls.isEmpty()) {
-                return ChatReply(result, replyQuote, inputTokens, outputTokens)
-            }
+        // 工具循环：批量调用全部执行、相同调用不重复、额度用完时逼模型用文字收尾。
+        val outcome = ChatToolLoop(
+            client = client,
+            tools = listOf(SERVICE_TOOL),
+            execute = ::executeServiceCall,
+        ).run(messages)
 
-            result.toolCalls.take(3).forEach { call ->
-                val execution = executeServiceCall(call)
-                execution.quote?.let { replyQuote = it }
-                messages += LlmMessage(
-                    "assistant",
-                    "工具调用：${call.name}(${call.argumentsJson})",
-                )
-                messages += LlmMessage(
-                    "user",
-                    "工具结果：\n${execution.output}\n\n请基于工具结果继续回答用户，不要重复调用同一个工具。",
-                )
-            }
-        }
-
-        val final = last ?: error("模型没有返回结果")
         return ChatReply(
-            result = final.copy(
-                text = final.text?.takeIf { it.isNotBlank() }
-                    ?: "（服务调用次数已达上限，请补充信息后重试）",
+            result = LlmResult(
+                text = outcome.text,
                 toolCalls = emptyList(),
+                usage = LlmUsage(outcome.inputTokens, outcome.outputTokens),
+                reasoning = outcome.reasoning,
             ),
-            quote = replyQuote,
-            inputTokens = inputTokens,
-            outputTokens = outputTokens,
+            quote = outcome.quote,
+            inputTokens = outcome.inputTokens,
+            outputTokens = outcome.outputTokens,
         )
     }
 
     /** 聊天里的通用手机服务调用：service.method + JSON 参数。 */
-    private suspend fun executeServiceCall(call: LlmToolCall): ToolExecution {
+    private suspend fun executeServiceCall(call: LlmToolCall): ToolRun {
         if (call.name != SERVICE_TOOL.name) {
-            return ToolExecution("未知工具：${call.name}")
+            return ToolRun(
+                label = call.name,
+                ok = false,
+                output = "未知工具：${call.name}；只能用 ${SERVICE_TOOL.name}",
+            )
         }
         val root = runCatching { JSONObject(call.argumentsJson) }.getOrNull()
-            ?: return ToolExecution("工具参数不是合法 JSON")
+            ?: return ToolRun(
+                label = call.name,
+                ok = false,
+                output = "工具参数不是合法 JSON：${call.argumentsJson.take(200)}",
+            )
         var service = root.optString("service").trim()
         var method = root.optString("method").trim()
         if (method.isBlank() && '.' in service) {
@@ -759,17 +746,26 @@ internal object ChatController {
             service = service.substringBeforeLast('.')
         }
         if (service.isBlank() || method.isBlank()) {
-            return ToolExecution("缺少 service 或 method")
+            return ToolRun(
+                label = call.name,
+                ok = false,
+                output = "缺少 service 或 method：${call.argumentsJson.take(200)}",
+            )
         }
         val args = when (val raw = root.opt("args")) {
             is JSONObject -> raw
             is String -> runCatching { JSONObject(raw) }.getOrNull() ?: JSONObject()
             else -> JSONObject()
         }
+        val label = labelOf(service, method, args)
         val command = AppGraph.commands.find("$service.$method")
-            ?: return ToolExecution("没有服务命令：$service.$method")
+            ?: return ToolRun(label = label, ok = false, output = "没有服务命令：$service.$method")
         if (!isChatCommandAllowed(command)) {
-            return ToolExecution("聊天中不能调用与 UI 操作相关的服务：${command.id}")
+            return ToolRun(
+                label = label,
+                ok = false,
+                output = "聊天中不能调用与 UI 操作相关的服务：${command.id}",
+            )
         }
         val result = runCatching {
             AppGraph.commands.run(command.id, args)
@@ -782,7 +778,9 @@ internal object ChatController {
             val messageId = data.optLong("messageId")
             val content = data.optString("content")
             if (messageId > 0 && content.isNotBlank()) {
-                return ToolExecution(
+                return ToolRun(
+                    label = label,
+                    ok = true,
                     output = "引用已附加到这条回复的顶部（消息 #$messageId）。" +
                         "不要在正文里重复引用块、消息 id、会话 id、角色或 JSON 字段，直接回答用户。",
                     quote = MessageQuote(
@@ -797,7 +795,21 @@ internal object ChatController {
                 )
             }
         }
-        return ToolExecution(ServiceText.format(result).take(4_000))
+        return ToolRun(
+            label = label,
+            ok = result.ok,
+            output = ServiceText.format(result),
+            // 只读命令重复出现时重新执行：删完再列目录必须看到新快照。
+            readOnly = command.risk == ServiceRisk.READ || command.risk == ServiceRisk.SENSITIVE,
+        )
+    }
+
+    /** 调用标签：命令名 + 最有辨识度的参数，回填给模型和兜底汇总都用它。 */
+    private fun labelOf(service: String, method: String, args: JSONObject): String {
+        val hint = LABEL_KEYS.firstNotNullOfOrNull { key ->
+            if (args.isNull(key)) null else args.optString(key).trim().takeIf { it.isNotBlank() }
+        }
+        return if (hint.isNullOrBlank()) "$service.$method" else "$service.$method ${hint.take(120)}"
     }
 
     /** 聊天窗口只允许无 UI 操作的服务；屏幕自动化、点击、输入、启动、弹窗全部排除。 */
@@ -883,6 +895,9 @@ internal object ChatController {
             },"required":["service","method"]}
         """.trimIndent(),
     )
+
+    /** 调用标签里优先展示的参数，取第一个非空值。 */
+    private val LABEL_KEYS = listOf("path", "query", "package", "name", "title", "id")
 
     /** 聊天里绝对不能触碰 UI 的服务；屏幕读取/截图也一并排除。 */
     private val CHAT_UI_BLOCKED_SERVICES = setOf(

@@ -61,6 +61,15 @@ class ScreenService : BasePhoneService() {
                 risk = ServiceRisk.READ,
             ),
         ) { status() }
+
+        register(
+            ServiceMethod(
+                name = "snapshot",
+                summary = "最近一次无障碍快照的完整节点（不重新抓屏；调试浮窗/弹窗用）",
+                parameters = Schema.params(),
+                risk = ServiceRisk.SENSITIVE,
+            ),
+        ) { snapshot() }
     }
 
     private suspend fun observe(): ServiceResult {
@@ -107,7 +116,51 @@ class ScreenService : BasePhoneService() {
                 .put("obsId", snapshot?.id ?: 0L)
                 .put("capturedAt", snapshot?.capturedAt ?: 0L)
                 .put("nodes", snapshot?.nodes?.size ?: 0)
-                .put("ageMs", snapshot?.let { System.currentTimeMillis() - it.capturedAt } ?: 0L),
+                .put("ageMs", snapshot?.let {
+                    System.currentTimeMillis() - it.capturedAt
+                } ?: 0L),
+        )
+    }
+
+    /**
+     * 最近一次无障碍快照的完整节点，不重新抓屏。
+     *
+     * 用途：adb 调试浮窗/弹窗。Lyra 在前台时无障碍服务会忽略自身事件，
+     * 所以这里读到的仍是切回 Lyra 之前那个 App 的快照。
+     */
+    private fun snapshot(): ServiceResult {
+        val snapshot = AccessibilityState.snapshot.value
+            ?: return ServiceResult.fail("no_snapshot", "还没有屏幕快照")
+        val text = buildString {
+            appendLine(
+                "package=${snapshot.packageName} obsId=${snapshot.id} " +
+                    "nodes=${snapshot.nodes.size}",
+            )
+            snapshot.nodes.forEach { node ->
+                append("#${node.id} ")
+                append(node.className.substringAfterLast('.').ifBlank { "?" })
+                node.viewId?.takeIf { it.isNotBlank() }?.let { append(" viewId=").append(it) }
+                node.text?.takeIf { it.isNotBlank() }?.let { append(" text=").append(it) }
+                node.contentDescription?.takeIf { it.isNotBlank() }?.let {
+                    append(" desc=").append(it)
+                }
+                append(" click=").append(node.clickable)
+                append(" editable=").append(node.editable)
+                append(" visible=").append(node.visible)
+                append(" bounds=")
+                append(node.bounds.left).append(',')
+                append(node.bounds.top).append(',')
+                append(node.bounds.right).append(',')
+                append(node.bounds.bottom)
+                appendLine()
+            }
+        }
+        return ServiceResult.ok(
+            text,
+            JSONObject()
+                .put("package", snapshot.packageName)
+                .put("obsId", snapshot.id)
+                .put("nodes", snapshot.nodes.size),
         )
     }
 }

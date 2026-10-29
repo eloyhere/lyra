@@ -901,19 +901,7 @@ fun SettingsScreen(onBack: () -> Unit) {
                                         ) + "共 ${m.receipts} 次动作 · ${m.totalTokens} tokens · $$cost" +
                                             if (m.reliable) "" else "（样本不足，仅供参考）"
                                     }.getOrElse { "指标读取失败：${it.message}" }
-                                    compactionText = runCatching {
-                                        val checkpoints = AppGraph.history.ledger.checkpoints()
-                                        if (checkpoints.isEmpty()) {
-                                            "未压缩"
-                                        } else {
-                                            val latest = checkpoints.first()
-                                            val tail = events.filter { it.seq > latest.to }
-                                            val ok = com.eloykim.lyra.amp.Compaction
-                                                .verify(latest, tail).isEmpty()
-                                            "已压缩 ${latest.count} 条（#${latest.from}–#${latest.to}）· " +
-                                                "checkpoint 校验${if (ok) "通过" else "失败"}"
-                                        }
-                                    }.getOrElse { "压缩状态未知：${it.message}" }
+                                    compactionText = "未压缩（协议 signed checkpoint 待接入）"
                                     ledgerLines = events.takeLast(80).map { event ->
                                         "#${event.seq} ${event.type}  ${event.digest.take(23)}…\n    ${event.payload.take(80)}"
                                     }

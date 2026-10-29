@@ -22,8 +22,8 @@
 | 自动化服务（AIDL）：observe / tap / setText / scroll / global / launch | ✅ 真机验证（服务点击生效） |
 | 策略引擎（支付 / 凭证 / 自我 / 系统硬拒绝） | ✅ 10 条单测 |
 | 授权闸门（发消息 / 文件 / 账号） | ✅ 代码 + 弹窗；生物识别待接 |
-| AMP 账本（Frame / Receipt / Manifest） | ✅ 9 条单测 |
-| 模型网关 + Agent 循环 | ⏳ 待接（下行契约已就位） |
+| AMP 账本（Frame / Receipt / Manifest / Event） | ✅ 协议 0.1 wire / 0.4.1 端口，1073 条单测，Frame + 事件链 Node 外部校验 |
+| 模型网关 + Agent 循环 | ✅ LlmAgentBackend + 焦点帧落库；技能沉淀待后续 |
 | 语音、技能沉淀 | ⏳ 后续里程碑 |
 
 ## 文档
@@ -59,18 +59,31 @@
 
 ```bash
 ./gradlew :app:assembleDebug
-./gradlew :core:policy:testDebugUnitTest :core:amp:testDebugUnitTest :core:designsystem:testDebugUnitTest
+./gradlew :app:testDebugUnitTest
+node tools/amp-conformance/validate-wire.mjs
 ```
 
 要求：JDK 17+、Android SDK（`local.properties` 中的 `sdk.dir`）。
 
 ## 模块
 
+`core:*` 已全部合并进 `:app`：源码统一在 `app/src/main/kotlin/com/eloykim/lyra` 下，
+不再有独立 Gradle 模块（合并前分别是 core/model、policy、amp-protocol、agent、data、
+network、attention、designsystem、accessibility）。原来的模块边界现在体现为包：
+
 ```
-app/                  单 Activity + Compose 导航 + 授权弹窗
-core/model/           UiNode / ScreenSnapshot（无 Android 依赖）
-core/policy/          PolicyGuard：风险域判定（纯 Kotlin）
-core/amp/             AMP 对象、JSON、账本、Manifest（纯 Kotlin）
-core/accessibility/   无障碍服务、快照、引擎、AIDL 服务、授权状态
-core/designsystem/    Material 3 Expressive 主题与组件
+app/                       单 Activity + Compose 导航 + 授权弹窗；下面这些包都在 app 里
+  com.eloykim.lyra.model/            UiNode / ScreenSnapshot（无 Android 依赖）
+  com.eloykim.lyra.policy/           PolicyGuard：风险域判定（纯 Kotlin）
+  com.eloykim.lyra.amp.protocol/     AMP 0.4.1 参考实现的 Kotlin 端口（wire 0.1，纯协议层）
+  com.eloykim.lyra.agent/            AgentSession、焦点选择、Warrant、AMP Frame 适配
+  com.eloykim.lyra.data/             SQLite 落库、只追加事件、canonical Frame payload
+  com.eloykim.lyra.accessibility/    无障碍服务、快照、引擎、AIDL 服务、授权状态
+  com.eloykim.lyra.automation/       AutomationService（AIDL 服务端）
+  com.eloykim.lyra.designsystem/     Material 3 Expressive 主题与组件
+  com.eloykim.lyra.network/          HttpClient / Llm 协议客户端
 ```
+
+合并带来的两个构建项：`buildFeatures.aidl = true`（`app/src/main/aidl` 下的 IAutomation）
+和 `testOptions.unitTests.isReturnDefaultValues = true`（原 amp-protocol 的单测依赖桩实现）。
+

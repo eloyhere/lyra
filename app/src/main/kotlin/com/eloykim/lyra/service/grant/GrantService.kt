@@ -2,10 +2,8 @@ package com.eloykim.lyra.service.grant
 
 import android.Manifest
 import android.content.Context
-import android.content.pm.PackageManager
-import android.os.Build
-import android.os.Environment
 import com.eloykim.lyra.permission.PermissionBroker
+import com.eloykim.lyra.permission.PermissionCatalog
 import com.eloykim.lyra.service.BasePhoneService
 import com.eloykim.lyra.service.Schema
 import com.eloykim.lyra.service.ServiceMethod
@@ -88,22 +86,17 @@ class GrantService(private val context: Context) : BasePhoneService() {
     }
 
     private suspend fun listPermissions(): ServiceResult {
-        val declared = declaredRuntimePermissions()
+        val entries = PermissionCatalog.entries(context)
         val array = JSONArray()
-        declared.forEach { permission ->
-            array.put(
-                JSONObject()
-                    .put("permission", permission)
-                    .put("granted", isGranted(permission)),
-            )
-        }
-        array.put(
+        entries.forEach { array.put(it.toJson()) }
+        val pending = entries.count { !it.granted }
+        return ServiceResult.ok(
+            "${entries.size} 项权限（${entries.size - pending} 已授予，$pending 待授予）",
             JSONObject()
-                .put("permission", Manifest.permission.MANAGE_EXTERNAL_STORAGE)
-                .put("granted", hasAllFilesAccess())
-                .put("special", true),
+                .put("permissions", array)
+                .put("grantedCount", entries.size - pending)
+                .put("pendingCount", pending),
         )
-        return ServiceResult.ok("${array.length()} 个可申请权限", JSONObject().put("permissions", array))
     }
 
     private fun status(permissions: List<String>): ServiceResult {
@@ -112,12 +105,17 @@ class GrantService(private val context: Context) : BasePhoneService() {
         }
         val array = JSONArray()
         permissions.forEach { permission ->
-            array.put(
-                JSONObject()
-                    .put("permission", permission)
-                    .put("declared", isDeclared(permission))
-                    .put("granted", isGranted(permission)),
-            )
+            val entry = PermissionCatalog.entry(context, permission)
+            if (entry != null) {
+                array.put(entry.toJson().put("declared", true))
+            } else {
+                array.put(
+                    JSONObject()
+                        .put("permission", permission)
+                        .put("declared", false)
+                        .put("granted", PermissionCatalog.granted(context, permission)),
+                )
+            }
         }
         return ServiceResult.ok("${array.length()} 个权限", JSONObject().put("permissions", array))
     }
@@ -130,11 +128,28 @@ class GrantService(private val context: Context) : BasePhoneService() {
         if (permissions.isEmpty() && !allFiles) {
             return ServiceResult.fail("bad_args", "没有要申请的权限")
         }
-        val unknown = permissions.filterNot { isDeclared(it) }
+        val unknown = permissions.filterNot { PermissionCatalog.declared(context, it) }
         if (unknown.isNotEmpty()) {
             return ServiceResult.fail(
                 "not_declared",
                 "Manifest 没有声明：${unknown.joinToString()}",
+            )
+        }
+        // 普通权限安装即授予，特殊访问只能在系统设置里开：都不该走弹窗申请。
+        val blocked = permissions
+            .filterNot { it == Manifest.permission.MANAGE_EXTERNAL_STORAGE }
+            .mapNotNull { PermissionCatalog.entry(context, it) }
+            .filterNot { it.requestable }
+        if (blocked.isNotEmpty()) {
+            return ServiceResult.fail(
+                "not_requestable",
+                blocked.joinToString("；") { entry ->
+                    "${entry.label}不能在应用内申请：${entry.howToGrant ?: "请到系统设置里开启"}"
+                },
+                JSONObject().put(
+                    "permissions",
+                    JSONArray(blocked.map { it.toJson() }),
+                ),
             )
         }
         val requested = permissions.filterNot { it == Manifest.permission.MANAGE_EXTERNAL_STORAGE }
@@ -147,7 +162,7 @@ class GrantService(private val context: Context) : BasePhoneService() {
             val granted = JSONArray()
             val denied = JSONArray()
             requested.forEach { permission ->
-                if (isGranted(permission)) {
+                if (PermissionCatalog.granted(context, permission)) {
                     granted.put(permission)
                 } else {
                     denied.put(permission)
@@ -176,39 +191,5 @@ class GrantService(private val context: Context) : BasePhoneService() {
         }
     }
 
-    private fun declaredRuntimePermissions(): List<String> {
-        val info = context.packageManager.getPackageInfo(
-            context.packageName,
-            PackageManager.GET_PERMISSIONS,
-        )
-        return info.requestedPermissions.orEmpty().filter { permission ->
-            val level = runCatching {
-                context.packageManager.getPermissionInfo(permission, 0).protection
-            }.getOrDefault(0)
-            level and android.content.pm.PermissionInfo.PROTECTION_DANGEROUS != 0
-        }
-    }
-
-    private fun isDeclared(permission: String): Boolean {
-        val info = context.packageManager.getPackageInfo(
-            context.packageName,
-            PackageManager.GET_PERMISSIONS,
-        )
-        return info.requestedPermissions.orEmpty().contains(permission)
-    }
-
-    private fun isGranted(permission: String): Boolean {
-        if (permission == Manifest.permission.MANAGE_EXTERNAL_STORAGE) {
-            return hasAllFilesAccess()
-        }
-        return context.checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED
-    }
-
-    private fun hasAllFilesAccess(): Boolean =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            Environment.isExternalStorageManager()
-        } else {
-            context.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) ==
-                PackageManager.PERMISSION_GRANTED
-        }
+    private fun hasAllFilesAccess(): Boolean = PermissionCatalog.allFilesAccess(context)
 }

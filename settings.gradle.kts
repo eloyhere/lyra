@@ -23,13 +23,5 @@ dependencyResolutionManagement {
 
 rootProject.name = "Lyra"
 
+// core:* 已合并进 :app（源码在 app/src/main/kotlin/com/eloykim/lyra），不再单独成模块。
 include(":app")
-include(":core:model")
-include(":core:policy")
-include(":core:amp")
-include(":core:agent")
-include(":core:data")
-include(":core:network")
-include(":core:attention")
-include(":core:designsystem")
-include(":core:accessibility")

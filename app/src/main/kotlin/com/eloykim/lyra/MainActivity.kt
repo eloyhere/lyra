@@ -105,10 +105,8 @@ class MainActivity : ComponentActivity() {
         if (BuildConfig.DEBUG) {
             applyDebugIntent(intent)
         }
-        // 仅调试包允许 Agent 操作 Lyra 自身；release 保持硬拒绝
-        if (BuildConfig.DEBUG) {
-            com.eloykim.lyra.policy.PolicyGuard.setAllowSelfOperation(true)
-        }
+        // 自身操作默认关闭：只有调试时显式传 self=1 才打开。
+        // 首页命令会先经 application.list/launch 打开目标应用，不需要在 Lyra 界面里试。
         AppGraph.init(applicationContext)
         com.eloykim.lyra.voice.OfflineAsrModel.init(applicationContext)
         com.eloykim.lyra.notify.LyraNotifications.init(applicationContext)
@@ -144,6 +142,11 @@ class MainActivity : ComponentActivity() {
         DebugLaunch.budgetMs = intent?.getStringExtra("ms")?.toLongOrNull() ?: 300_000L
         DebugLaunch.budgetMoneyMicros = intent?.getStringExtra("money")?.toLongOrNull() ?: 5_000_000L
         DebugLaunch.compactKeep = intent?.getStringExtra("compact")?.toIntOrNull() ?: 0
+        DebugLaunch.focusProbe = intent?.getStringExtra("focus") == "1"
+        DebugLaunch.allowSelfObservation = intent?.getStringExtra("self") == "1"
+        if (BuildConfig.DEBUG) {
+            com.eloykim.lyra.policy.PolicyGuard.setAllowSelfOperation(DebugLaunch.allowSelfObservation)
+        }
         DebugLaunch.screen.value = intent?.getStringExtra("screen")
         DebugLaunch.task.value = extra
         intent?.getStringExtra("asr_wav")?.let { path -> runAsrDebug(path) }
@@ -174,7 +177,74 @@ class MainActivity : ComponentActivity() {
                 val args = runCatching { org.json.JSONObject(rawArgs) }
                     .getOrDefault(org.json.JSONObject())
                 kotlinx.coroutines.runBlocking {
-                    AppGraph.commands.run(command, args)
+                    if (command == "amp.appendTest") {
+                        val event = AppGraph.history.ledger.append(
+                            actor = "debug",
+                            type = "test",
+                            payload = """{"ok":true,"probe":"amp"}""",
+                            refs = listOf("frame:f.1"),
+                            at = System.currentTimeMillis(),
+                        )
+                        com.eloykim.lyra.service.ServiceResult(
+                            true,
+                            "ok",
+                            "appended #${event.seq}",
+                            org.json.JSONObject()
+                                .put("seq", event.seq)
+                                .put("digest", event.digest)
+                                .put("hash", event.hash),
+                        )
+                    } else if (command == "amp.frameTest") {
+                        val goal = com.eloykim.lyra.amp.protocol.types.Ref(
+                            com.eloykim.lyra.amp.protocol.types.RefKind.GOAL,
+                            "g.test",
+                            "调试帧",
+                        )
+                        val refs = com.eloykim.lyra.amp.protocol.boundary.RefTable(
+                            com.eloykim.lyra.amp.protocol.boundary.RefScope.RUN,
+                            "a.lyra",
+                        )
+                            .add(com.eloykim.lyra.amp.protocol.types.RefKind.GOAL, goal.id, null)
+                            .add(com.eloykim.lyra.amp.protocol.types.RefKind.TOOL, "automation.observe", null)
+                        val frame = com.eloykim.lyra.amp.protocol.boundary.frameFrom(
+                            com.eloykim.lyra.amp.protocol.boundary.FrameDraft(
+                                id = "f.debug",
+                                agent = "a.lyra",
+                                cycle = 1,
+                                ts = com.eloykim.lyra.amp.protocol.types.nowTimestamp(),
+                                mode = com.eloykim.lyra.amp.protocol.frame.FrameMode.EXPLOIT,
+                                goal = goal,
+                                slots = listOf(
+                                    com.eloykim.lyra.amp.protocol.frame.Slot(
+                                        target = com.eloykim.lyra.amp.protocol.types.Ref(
+                                            com.eloykim.lyra.amp.protocol.types.RefKind.ENTITY,
+                                            "ui.1",
+                                            "调试节点",
+                                        ),
+                                        role = com.eloykim.lyra.amp.protocol.frame.SlotRole.EVIDENCE,
+                                        salience = 0.8,
+                                        cost = com.eloykim.lyra.amp.protocol.types.Budget(tokens = 10, calls = 1),
+                                        why = "调试帧验证 canonical Frame 落库",
+                                        state = com.eloykim.lyra.amp.protocol.frame.SlotState.ACTIVE,
+                                    ),
+                                ),
+                                budget = com.eloykim.lyra.amp.protocol.frame.FrameBudget(
+                                    allocated = com.eloykim.lyra.amp.protocol.types.Budget(tokens = 100),
+                                    spent = com.eloykim.lyra.amp.protocol.types.Budget(tokens = 10, calls = 1),
+                                ),
+                            ),
+                            refs,
+                        ).frame
+                        AppGraph.history.frames.append(0, frame)
+                        com.eloykim.lyra.service.ServiceResult(
+                            true,
+                            "ok",
+                            "frame ${frame.id}",
+                            org.json.JSONObject().put("digest", frame.digest),
+                        )
+                    } else {
+                        AppGraph.commands.run(command, args)
+                    }
                 }
             }.getOrElse {
                 com.eloykim.lyra.service.ServiceResult(
